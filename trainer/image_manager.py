@@ -406,22 +406,10 @@ async def run_environment_server_container(environment_name: str, log_labels: di
 
     container_name = f"environment-server-{uuid.uuid4().hex[:8]}"
     logger.info(f"Starting env server container: {container_name}", extra=log_labels)
-
-    if environment_name == "alfworld":
-        # Run the alfworld server
+    if environment_name in ["goofspiel", "gin_rummy", "liars_dice"]:
         container = await asyncio.to_thread(
             client.containers.run,
-            image="affinefoundation/agentgym:alfworld",
-            name=container_name,
-            detach=True,
-            labels=log_labels,
-            network=cst.INTERNAL_BRIDGE_NAME,
-        )
-        return container
-    elif environment_name == "goofspiel":
-        container = await asyncio.to_thread(
-            client.containers.run,
-            image="affinefoundation/game:openspiel",
+            image="phoenixbeaudry/game:mcts-api",
             name=container_name,
             detach=True,
             labels=log_labels,

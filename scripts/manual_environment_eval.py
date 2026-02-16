@@ -6,20 +6,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 BASE_MODEL_REVISION = None
 LORA_MODEL_NAME = None # Put the name of your repo containing the LORA here
 LORA_MODEL_REVISION = None
 
-
 # --- Evaluation Configuration ---
-GAME_TO_EVAL = "goofspiel"
+GAME_TO_EVAL = "gin_rummy"
 OPPONENT_TYPE = "mcts"
+MCTS_MAX_SIMULATIONS = 25
+MCTS_NUM_ROLLOUTS = 1
 NUM_EVALS = 100
 TEMPERATURE = 0.0
 RANDOM_SEED = 42
 NUM_CONCURRENT_EVAL_WORKERS = 5
-
 
 ##############################################################################################
 
@@ -37,17 +37,16 @@ GAMES_TO_TASK_ID_RANGE = {
     "clobber": (700000000, 799999999),
 }
 SGLANG_IMAGE = "lmsysorg/sglang:latest"
-AGENTGYM_IMAGE = "diagonalge/openspiel:latest"
+AGENTGYM_IMAGE = "phoenixbeaudry/game:mcts-api"
 NETWORK_NAME = "agent_eval_net"
 SGLANG_PORT = 30000
 HF_CACHE_DIR = "/mnt/hf_cache"
-task_id_range = GAMES_TO_TASK_ID_RANGE[GAME_TO_EVAL]
-task_id_min, task_id_max = task_id_range
-DATA_LEN_RANGE = task_id_max
+TASK_ID_MIN, TASK_ID_MAX = GAMES_TO_TASK_ID_RANGE[GAME_TO_EVAL]
 
 def run_evaluation():
     containers = {}
     avg_score = 0.0
+    win_count = 0
 
     try:
         # 1. Infrastructure Setup
@@ -129,7 +128,7 @@ def run_evaluation():
 
         # 3. Evaluation Loop
         random.seed(RANDOM_SEED)
-        eval_list = random.sample(range(1, DATA_LEN_RANGE + 1), NUM_EVALS)
+        eval_list = random.sample(range(TASK_ID_MIN, TASK_ID_MAX), NUM_EVALS)
         total_score = 0.0
 
         if LORA_MODEL_NAME:
@@ -145,9 +144,11 @@ def run_evaluation():
                 "base_url": f"http://sglang-server:{SGLANG_PORT}/v1",
                 "task_id": task_id,
                 "temperature": TEMPERATURE,
-                "seed": RANDOM_SEED,
+                "seed": task_id,
                 "opponent": OPPONENT_TYPE,
-                "api_key": "test"
+                "api_key": "test",
+                "mcts_max_simulations": MCTS_MAX_SIMULATIONS,
+                "mcts_num_rollouts": MCTS_NUM_ROLLOUTS
             }
             try:
                 response = requests.post("http://localhost:8001/evaluate", json=payload, timeout=2500)
@@ -169,6 +170,8 @@ def run_evaluation():
                 task_id, score, error = future.result()
                 completed += 1
                 total_score += score
+                if score == 1.0:
+                    win_count += 1
                 if error:
                     print(f"[{completed}/{NUM_EVALS}] Task {task_id}: FAILED ({error})")
                 else:
@@ -179,6 +182,7 @@ def run_evaluation():
 
         print(f"\n✅ Evaluation complete.")
         print(f"Score: {total_score}/{NUM_EVALS} ({avg_score:.4f})")
+        print(f"Win Count: {win_count}/{NUM_EVALS} ({win_count/NUM_EVALS})")
 
     finally:
         print("🧹 Cleaning up containers...")
@@ -188,4 +192,8 @@ def run_evaluation():
 
 
 if __name__ == "__main__":
+    start = time.perf_counter()
     run_evaluation()
+    end = time.perf_counter()
+    elapsed = end-start
+    print(f"Evaluation took: {elapsed:.4f} seconds")
