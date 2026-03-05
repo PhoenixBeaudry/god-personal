@@ -80,8 +80,9 @@ def _run_eval():
             _state["result"] = json.load(f)
         _state["status"] = "completed"
     except Exception as e:
-        _state["status"] = "failed"
-        _state["error"] = str(e)
+        if _state["status"] != "completed":
+            _state["status"] = "failed"
+            _state["error"] = str(e)
 
 def main():
     server = HTTPServer(("0.0.0.0", 8000), _Handler)
