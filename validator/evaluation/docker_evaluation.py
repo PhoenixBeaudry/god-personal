@@ -922,7 +922,7 @@ async def run_evaluation_docker_environment(
                 if is_lora:
                     base_model = original_model
                     lora_model = repo
-                    inference_model_name = f"{original_model}:trained_lora"
+                    inference_model_name = original_model
                     env_logger.info(f"Deploying SGLang: {original_model} w/ LoRA {repo}")
                 else:
                     base_model = repo
@@ -1059,7 +1059,7 @@ async def run_evaluation_local_environment(
 
             if is_lora:
                 base_model = original_model
-                inference_model_name = f"{original_model}:trained_lora"
+                inference_model_name = original_model
                 env_logger.info(f"LoRA detected: {original_model} + LoRA {repo}")
                 safe_lora_name = repo.replace("/", "_")
                 lora_dir = f"/tmp/sglang_lora/{safe_lora_name}"
