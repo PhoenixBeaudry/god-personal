@@ -221,7 +221,6 @@ TOURNAMENT_IMAGE_WEIGHT = 0.10
 TOURNAMENT_ENVIRONMENT_WEIGHT = 0.10
 TOURNAMENT_INTERVAL_HOURS = 72
 
-
 # Tournament scheduling settings
 # Tournaments start every week on these days and hours (UTC)
 # Environment tournaments: Monday at 14:00 UTC
