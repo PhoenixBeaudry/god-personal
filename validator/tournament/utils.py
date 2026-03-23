@@ -826,7 +826,7 @@ async def get_group_winners(
 
         sorted_participants = sorted(participant_scores.items(), key=lambda x: x[1])
         ranking_direction = "ascending (lower is better)"
-
+        
         logger.info(
             f"Group {group_id} participants sorted by adjusted loss ({ranking_direction}): "
             f"{[(hotkey, f'{loss:.6f}') for hotkey, loss in sorted_participants]}"
