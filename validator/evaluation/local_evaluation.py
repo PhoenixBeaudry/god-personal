@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import glob
 import json
 import logging
@@ -8,8 +9,8 @@ import shutil
 import time
 import uuid
 
-import aiohttp
 import docker
+import requests
 from docker.types import Mount
 from huggingface_hub import snapshot_download
 
@@ -262,7 +263,11 @@ async def run_evaluation_local_environment(
     dataset_type: EnvironmentDatasetType,
     gpu_id: int = 0,
     eval_seed: int | None = None,
+    num_env_servers: int = 1,
+    task_timeout: int | None = None,
 ) -> DockerEvaluationResults:
+    if num_env_servers < 1:
+        raise ValueError(f"num_env_servers must be >= 1, got {num_env_servers}")
     logger.info(f"Starting local Docker environment evaluation for {len(models)} repos: {models}")
     stream_sglang_logs = os.getenv("LOCAL_ENV_STREAM_SGLANG_LOGS", "0").strip().lower() in {"1", "true", "yes", "on"}
     raw_sglang_log_file = os.getenv("LOCAL_ENV_SGLANG_RAW_LOG_FILE", "").strip()
@@ -300,7 +305,7 @@ async def run_evaluation_local_environment(
         eval_id = str(uuid.uuid4())
         repo_name = repo.split("/")[-1]
         env_logger = get_environment_logger(name=f"{repo_name}-{eval_id[:8]}", repo_id=repo, eval_id=eval_id, model=original_model)
-        local_env_server_port = int(os.getenv("LOCAL_ENV_SERVER_PORT", str(vcst.LOCAL_ENV_SERVER_PORT)))
+        local_env_server_port_base = int(os.getenv("LOCAL_ENV_SERVER_PORT", str(vcst.LOCAL_ENV_SERVER_PORT)))
 
         containers = {}
         lora_dir = None
@@ -391,26 +396,31 @@ async def run_evaluation_local_environment(
             await asyncio.to_thread(wait_for_basilica_health, sglang_host_url, vcst.LOCAL_ENV_SGLANG_HEALTH_TIMEOUT)
             env_logger.info(f"SGLang ready at {sglang_host_url}")
 
-            env_logger.info(f"Starting environment container: {env_container_name}")
-            env_container = await asyncio.to_thread(
-                docker_client.containers.run,
-                env_image,
-                name=env_container_name,
-                detach=True,
-                network=vcst.LOCAL_ENV_DOCKER_NETWORK,
-                ports={"8000/tcp": local_env_server_port},
-                remove=False,
-            )
-            containers["env"] = env_container
+            env_host_urls: list[str] = []
+            for server_idx in range(num_env_servers):
+                env_container_name_i = f"{env_container_name}-{server_idx}"
+                env_host_port = local_env_server_port_base + server_idx
+                env_logger.info(f"Starting environment container {server_idx + 1}/{num_env_servers}: {env_container_name_i} on host port {env_host_port}")
+                env_container_i = await asyncio.to_thread(
+                    docker_client.containers.run,
+                    env_image,
+                    name=env_container_name_i,
+                    detach=True,
+                    network=vcst.LOCAL_ENV_DOCKER_NETWORK,
+                    ports={"8000/tcp": env_host_port},
+                    remove=False,
+                )
+                containers[f"env-{server_idx}"] = env_container_i
+                env_host_urls.append(f"http://localhost:{env_host_port}")
 
-            env_host_url = f"http://localhost:{local_env_server_port}"
-            await asyncio.to_thread(wait_for_basilica_health, env_host_url, vcst.LOCAL_ENV_SERVER_HEALTH_TIMEOUT, "/health")
-            env_logger.info(f"Environment server ready at {env_host_url}")
+            for server_idx, env_host_url in enumerate(env_host_urls):
+                await asyncio.to_thread(wait_for_basilica_health, env_host_url, vcst.LOCAL_ENV_SERVER_HEALTH_TIMEOUT, "/health")
+                env_logger.info(f"Environment server {server_idx + 1}/{num_env_servers} ready at {env_host_url}")
 
             sglang_internal_url = f"http://{sglang_container_name}:{local_sglang_port}"
             avg_score = await _run_environment_evaluation(
                 sglang_internal_url,
-                env_host_url,
+                env_host_urls,
                 eval_seeds,
                 task_id_max,
                 vcst.ENV_EVAL_TEMPERATURE,
@@ -418,6 +428,7 @@ async def run_evaluation_local_environment(
                 inference_model_name,
                 task_id_min,
                 env_payload_extra=env_payload_extra,
+                task_timeout=task_timeout,
             )
             evaluation_results[repo] = {"is_finetune": True, "eval_loss": avg_score}
         except Exception as e:
@@ -445,7 +456,7 @@ async def run_evaluation_local_environment(
 
 async def _run_environment_evaluation(
     sglang_url: str,
-    env_url: str,
+    env_urls: list[str],
     eval_seeds: list[int],
     data_len_range: int,
     temperature: float,
@@ -453,7 +464,15 @@ async def _run_environment_evaluation(
     inference_model_name: str,
     task_id_min: int = 0,
     env_payload_extra: dict | None = None,
+    task_timeout: int | None = None,
 ) -> float:
+    if not env_urls:
+        raise ValueError("env_urls must contain at least one environment server URL")
+
+    effective_timeout = task_timeout if task_timeout is not None else vcst.ENV_EVAL_TASK_TIMEOUT
+    per_server_concurrency = vcst.ENV_EVAL_MAX_CONCURRENT_REQUESTS
+    num_servers = len(env_urls)
+
     eval_list = []
     for seed in eval_seeds:
         rng = random.Random(seed)
@@ -464,7 +483,8 @@ async def _run_environment_evaluation(
     all_results = []
     retry_statuses = {404, 500, 501}
 
-    async def evaluate_single_task(session: aiohttp.ClientSession, seed: int, task_id: int, task_idx: int) -> dict | None:
+    def evaluate_single_task_sync(server_idx: int, seed: int, task_id: int, task_idx: int) -> dict | None:
+        env_url = env_urls[server_idx]
         payload = {
             "model": inference_model_name,
             "base_url": f"{sglang_url}/v1",
@@ -480,51 +500,75 @@ async def _run_environment_evaluation(
             attempt += 1
             start_ts = time.time()
             try:
-                env_logger.info(f"[{task_idx + 1}/{num_eval_samples}] Seed: {seed}, Task ID: {task_id}...")
-                timeout = aiohttp.ClientTimeout(total=vcst.ENV_EVAL_TASK_TIMEOUT)
-                async with session.post(
+                env_logger.info(
+                    f"[{task_idx + 1}/{num_eval_samples}] Server {server_idx}, Seed: {seed}, Task ID: {task_id}..."
+                )
+                response = requests.post(
                     f"{env_url}/evaluate",
                     json=payload,
-                    timeout=timeout,
+                    timeout=effective_timeout,
                     headers={"Connection": "close"},
-                ) as response:
-                    raw_text = await response.text()
-                    if response.status != 200:
-                        error_detail = f": {raw_text[:500]}" if raw_text else ""
-                        raise Exception(f"HTTP {response.status}{error_detail}")
-                    response_data = json.loads(raw_text)
-                    result = response_data.get("result", response_data)
-                    latency = result.get("time_taken", time.time() - start_ts)
-                    score = result.get("score", 0.0)
-                    env_logger.info(f"Task ID {task_id}: Done (Score: {score})")
-                    return {"task_id": task_id, "score": score, "time": latency}
+                )
+                raw_text = response.text
+                if response.status_code != 200:
+                    error_detail = f": {raw_text[:500]}" if raw_text else ""
+                    raise Exception(f"HTTP {response.status_code}{error_detail}")
+                response_data = json.loads(raw_text)
+                result = response_data.get("result", response_data)
+                latency = result.get("time_taken", time.time() - start_ts)
+                score = result.get("score", 0.0)
+                env_logger.info(f"Task ID {task_id}: Done (Score: {score})")
+                return {"task_id": task_id, "score": score, "time": latency}
             except Exception as e:
                 if any(f"HTTP {c}" in str(e) for c in retry_statuses):
                     if attempt >= vcst.ENV_EVAL_TASK_MAX_RETRIES:
-                        env_logger.warning("Task ID %s: Basilica failure after %d attempts, excluding from average", task_id, attempt)
+                        env_logger.warning(
+                            "Task ID %s: Basilica failure after %d attempts, excluding from average", task_id, attempt
+                        )
                         return None
-                    await asyncio.sleep(vcst.ENV_EVAL_TASK_RETRY_DELAY)
+                    time.sleep(vcst.ENV_EVAL_TASK_RETRY_DELAY)
                 else:
                     env_logger.error("Task ID %s: Non-retryable error, scoring 0: %s", task_id, e)
                     return {"task_id": task_id, "score": 0.0, "time": 0.0}
 
-    semaphore = asyncio.Semaphore(vcst.ENV_EVAL_MAX_CONCURRENT_REQUESTS)
+    executors = [
+        concurrent.futures.ThreadPoolExecutor(
+            max_workers=per_server_concurrency,
+            thread_name_prefix=f"env-eval-server-{i}",
+        )
+        for i in range(num_servers)
+    ]
 
-    async def evaluate_with_semaphore(session: aiohttp.ClientSession, seed: int, task_id: int, task_idx: int) -> dict | None:
-        async with semaphore:
-            return await evaluate_single_task(session, seed, task_id, task_idx)
+    loop = asyncio.get_running_loop()
+    total_concurrency = num_servers * per_server_concurrency
+    env_logger.info(
+        f"Starting {num_eval_samples} evaluations sharded round-robin across {num_servers} servers "
+        f"(per-server concurrency={per_server_concurrency}, total in-flight cap={total_concurrency})..."
+    )
+    try:
+        futures = []
+        for idx, (seed, task_id) in enumerate(eval_list):
+            server_idx = idx % num_servers
+            fut = loop.run_in_executor(
+                executors[server_idx],
+                evaluate_single_task_sync,
+                server_idx,
+                seed,
+                task_id,
+                idx,
+            )
+            futures.append(fut)
+        results = await asyncio.gather(*futures, return_exceptions=True)
+    finally:
+        for executor in executors:
+            executor.shutdown(wait=False, cancel_futures=True)
 
-    session_timeout = aiohttp.ClientTimeout(total=vcst.ENV_EVAL_SESSION_TIMEOUT)
-    async with aiohttp.ClientSession(timeout=session_timeout) as session:
-        env_logger.info(f"Starting {num_eval_samples} evaluations with concurrency={vcst.ENV_EVAL_MAX_CONCURRENT_REQUESTS}...")
-        tasks = [evaluate_with_semaphore(session, seed, task_id, idx) for idx, (seed, task_id) in enumerate(eval_list)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for idx, result in enumerate(results):
-            if isinstance(result, Exception):
-                seed, task_id = eval_list[idx]
-                env_logger.error(f"Seed {seed}, Task {task_id}: Failed with exception: {result}")
-            elif result is not None:
-                all_results.append(result)
+    for idx, result in enumerate(results):
+        if isinstance(result, Exception):
+            seed, task_id = eval_list[idx]
+            env_logger.error(f"Seed {seed}, Task {task_id}: Failed with exception: {result}")
+        elif result is not None:
+            all_results.append(result)
 
     total_score = sum(r.get("score", 0.0) for r in all_results)
     total_time = sum(r.get("time", 0.0) for r in all_results)
