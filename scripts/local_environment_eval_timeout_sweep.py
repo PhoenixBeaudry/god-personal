@@ -8,10 +8,17 @@ Edit the config constants below, then run:
 """
 
 import asyncio
+import sys
 import time
+from pathlib import Path
 
-from core.models.utility_models import EnvironmentDatasetType
-from validator.evaluation.local_evaluation import run_evaluation_local_environment
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from core.models.utility_models import EnvironmentDatasetType  # noqa: E402
+from validator.evaluation.local_evaluation import run_evaluation_local_environment  # noqa: E402
 
 
 # --- Model Configuration ---
