@@ -28,8 +28,8 @@ LORA_MODEL_NAME = "gradients-io-tournaments/tournament-tourn_768016249c31033a_20
 # --- Evaluation Configuration ---
 GAME_TO_EVAL = "gin_rummy"
 GPU_ID = 0
-NUM_ENV_SERVERS = 1
-TIMEOUTS_TO_TEST = [45, 50, 60, 90, 130, 150]
+NUM_ENV_SERVERS = 4
+TIMEOUTS_TO_TEST = [150]
 BASE_SEED = 4578
 
 
