@@ -15,14 +15,14 @@ from validator.evaluation.local_evaluation import run_evaluation_local_environme
 
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
-LORA_MODEL_NAME = None  # e.g. "your-org/your-lora-repo"
+BASE_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.3"
+LORA_MODEL_NAME = "gradients-io-tournaments/tournament-tourn_768016249c31033a_20260420-7afb25f0-fc5c-4f37-951c-51915a25a676-5FRdgPRd"  # e.g. "your-org/your-lora-repo"
 
 # --- Evaluation Configuration ---
 GAME_TO_EVAL = "gin_rummy"
 GPU_ID = 0
-NUM_ENV_SERVERS = 4
-TIMEOUTS_TO_TEST = [35, 40, 45, 50, 55]
+NUM_ENV_SERVERS = 1
+TIMEOUTS_TO_TEST = [45, 50, 60, 90, 130, 150]
 BASE_SEED = 4578
 
 
