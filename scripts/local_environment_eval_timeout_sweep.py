@@ -42,7 +42,15 @@ class _ConsoleProgressHandler(logging.Handler):
         super().__init__()
         self._completed = 0
         self._total = 0
+        self._start_ts: float | None = None
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _format_elapsed(seconds: float) -> str:
+        seconds = int(seconds)
+        h, rem = divmod(seconds, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:d}:{s:02d}"
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -52,6 +60,7 @@ class _ConsoleProgressHandler(logging.Handler):
                 with self._lock:
                     self._total = int(start_match.group(1))
                     self._completed = 0
+                    self._start_ts = time.perf_counter()
                 print(msg, flush=True)
                 return
             done_match = self._done_re.match(msg)
@@ -62,7 +71,11 @@ class _ConsoleProgressHandler(logging.Handler):
                     self._completed += 1
                     n = self._completed
                     total = self._total or "?"
-                print(f"[{n}/{total}] task {task_id} score={score}", flush=True)
+                    elapsed = time.perf_counter() - self._start_ts if self._start_ts else 0.0
+                print(
+                    f"[{n}/{total}] task {task_id} score={score} elapsed={self._format_elapsed(elapsed)}",
+                    flush=True,
+                )
                 return
             if self._summary_re.match(msg):
                 print(msg, flush=True)
