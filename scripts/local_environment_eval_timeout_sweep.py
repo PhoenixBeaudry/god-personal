@@ -8,7 +8,10 @@ Edit the config constants below, then run:
 """
 
 import asyncio
+import logging
+import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -18,7 +21,69 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from core.models.utility_models import EnvironmentDatasetType  # noqa: E402
+import validator.evaluation.local_evaluation as _local_eval  # noqa: E402
 from validator.evaluation.local_evaluation import run_evaluation_local_environment  # noqa: E402
+
+
+class _ConsoleProgressHandler(logging.Handler):
+    """Prints per-episode progress (`[n/total] task <id> score=<s>`) to stdout.
+
+    Reads the messages the env eval already emits on its environment logger:
+    the `Starting N evaluations ...` banner (to pick up the total) and
+    `Task ID X: Done (Score: Y)` per completion. Records are not mutated, so
+    the VectorHandler still sees the original payload.
+    """
+
+    _done_re = re.compile(r"^Task ID (\d+): Done \(Score: (.+)\)$")
+    _starting_re = re.compile(r"^Starting (\d+) evaluations sharded round-robin")
+    _summary_re = re.compile(r"^Summary:")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._completed = 0
+        self._total = 0
+        self._lock = threading.Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+            start_match = self._starting_re.match(msg)
+            if start_match:
+                with self._lock:
+                    self._total = int(start_match.group(1))
+                    self._completed = 0
+                print(msg, flush=True)
+                return
+            done_match = self._done_re.match(msg)
+            if done_match:
+                task_id = done_match.group(1)
+                score = done_match.group(2)
+                with self._lock:
+                    self._completed += 1
+                    n = self._completed
+                    total = self._total or "?"
+                print(f"[{n}/{total}] task {task_id} score={score}", flush=True)
+                return
+            if self._summary_re.match(msg):
+                print(msg, flush=True)
+        except Exception:
+            self.handleError(record)
+
+
+def _install_console_progress_logging() -> None:
+    handler = _ConsoleProgressHandler()
+    original = _local_eval.get_environment_logger
+
+    def patched(*args, **kwargs):
+        lg = original(*args, **kwargs)
+        if not any(isinstance(h, _ConsoleProgressHandler) for h in lg.handlers):
+            lg.addHandler(handler)
+        return lg
+
+    _local_eval.get_environment_logger = patched
+
+
+_install_console_progress_logging()
 
 
 # --- Model Configuration ---
@@ -28,7 +93,7 @@ LORA_MODEL_NAME = "gradients-io-tournaments/tournament-tourn_768016249c31033a_20
 # --- Evaluation Configuration ---
 GAME_TO_EVAL = "gin_rummy"
 GPU_ID = 0
-NUM_ENV_SERVERS = 4
+NUM_ENV_SERVERS = 6
 TIMEOUTS_TO_TEST = [150]
 BASE_SEED = 4578
 
