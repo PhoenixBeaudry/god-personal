@@ -13,31 +13,38 @@ LORA_MODEL_REVISION = None
 LOCAL_LORA_PATH = None #"/root/liars_dice_env_winner_mcts"
 
 # --- Evaluation Configuration ---
-GAME_TO_EVAL = "gin_rummy"
-OPPONENT_TYPE = "mcts"
+GAME_TO_EVAL = "2048"
+OPPONENT_TYPE = "random"
 MCTS_MAX_SIMULATIONS = 50
 MCTS_NUM_ROLLOUTS = 1
 NUM_EVALS = 1000
 TEMPERATURE = 0.0
 
-ENV_EVAL_MAX_CONCURRENT_REQUESTS = 4
-NUM_ENV_SERVERS = 1
+ENV_EVAL_MAX_CONCURRENT_REQUESTS = 2
+NUM_ENV_SERVERS = 4
 
 ##############################################################################################
 
 
 client = docker.from_env()
 
-GAMES_TO_TASK_ID_RANGE = {
-    "goofspiel": (0, 99999999),
-    "liars_dice": (100000000, 199999999),
-    "leduc_poker": (200000000, 299999999),
-    "gin_rummy": (300000000, 399999999),
-    "othello": (400000000, 499999999),
-    "backgammon": (500000000, 599999999),
-    "hex": (600000000, 699999999),
-    "clobber": (700000000, 799999999),
+
+GAMES_TO_TASK_ID_RANGE: dict[str, tuple[int, int]] = {
+    "goofspiel":   (0,         99_999_999),
+    "liars_dice":  (100000000, 199_999_999),
+    "leduc_poker": (200000000, 299_999_999),
+    "gin_rummy":   (300000000, 399_999_999),
+    "othello":     (400000000, 499_999_999),
+    "backgammon":  (500000000, 599_999_999),
+    "hex":         (600000000, 699_999_999),
+    "clobber":     (700000000, 799_999_999),
+    "2048":        (1700000000, 1_799_999_999),
+    "solitaire":   (1800000000, 1_899_999_999),
+    "bridge":      (1900000000, 1_999_999_999),
+    "amazons":     (2000000000, 2_099_999_999),
+    "oware":       (2100000000, 2_199_999_999),
 }
+
 SGLANG_IMAGE = "lmsysorg/sglang:latest"
 AGENTGYM_IMAGE = "openspiel:v1"
 NETWORK_NAME = "agent_eval_net"
