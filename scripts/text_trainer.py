@@ -75,6 +75,7 @@ def copy_dataset_to_axolotl_directories(dataset_path):
 def create_config(task_id, model, dataset, dataset_type, file_format, output_dir, expected_repo_name=None, log_wandb=True):
     """Create the axolotl config file with appropriate settings."""
 
+    # Needs to be at the top to change dataset type to force correct config used.
     if isinstance(dataset_type, EnvironmentDatasetType) and dataset_type.environment_name == "swe":
         print("SWE environment task: switching to SFT on SWE-bench/SWE-smith-trajectories", flush=True)
         dataset = "SWE-bench/SWE-smith-trajectories"
