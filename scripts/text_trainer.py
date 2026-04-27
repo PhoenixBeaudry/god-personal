@@ -75,6 +75,19 @@ def copy_dataset_to_axolotl_directories(dataset_path):
 def create_config(task_id, model, dataset, dataset_type, file_format, output_dir, expected_repo_name=None, log_wandb=True):
     """Create the axolotl config file with appropriate settings."""
 
+    if isinstance(dataset_type, EnvironmentDatasetType) and dataset_type.environment_name == "swe":
+        print("SWE environment task: switching to SFT on SWE-bench/SWE-smith-trajectories", flush=True)
+        dataset = "SWE-bench/SWE-smith-trajectories"
+        file_format = FileFormat.HF.value
+        dataset_type = ChatTemplateDatasetType(
+            chat_template="chatml",
+            chat_column="messages",
+            chat_role_field="role",
+            chat_content_field="content",
+            chat_user_reference="user",
+            chat_assistant_reference="assistant",
+        )
+
     print(f"Dataset type: {dataset_type}", flush=True)
     config_path = train_paths.get_axolotl_base_config_path(dataset_type)
     print(f"Config path: {config_path}", flush=True)
@@ -228,8 +241,10 @@ async def main():
     elif args.task_type == TaskType.ENVIRONMENTTASK.value:
         #adapt_columns_for_environment_dataset(dataset_path, dataset_type) # NOTE: Remove to test RO cache
         pass
-    
-    dataset_path = copy_dataset_to_axolotl_directories(dataset_path)
+
+    # SWE env task is rerouted inside create_config to an HF dataset; nothing to copy locally.
+    if not (isinstance(dataset_type, EnvironmentDatasetType) and dataset_type.environment_name == "swe"):
+        dataset_path = copy_dataset_to_axolotl_directories(dataset_path)
 
     output_dir = train_paths.get_checkpoints_output_path(args.task_id, args.expected_repo_name)
     if not os.path.exists(output_dir):
