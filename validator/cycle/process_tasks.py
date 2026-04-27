@@ -26,6 +26,7 @@ from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)
+_EVALUATING_ROWS_LOCK = asyncio.Lock()
 
 
 async def _select_miner_pool_and_add_to_task(task: AnyTypeRawTask, config: Config) -> AnyTypeRawTask:
@@ -256,26 +257,36 @@ async def _evaluate_pending_pairs_for_task(task: AnyTypeRawTask, num_gpus: int, 
     evaluating_hotkeys = [row["hotkey"] for row in evaluating_rows]
     all_hotkeys = list(dict.fromkeys(pending_hotkeys + evaluating_hotkeys))
 
-    if pending_hotkeys:
-        await tasks_sql.update_task_evaluations_status(task.task_id, pending_hotkeys, "evaluating", config.psql_db)
+    for hotkey in all_hotkeys:
+        if hotkey in pending_hotkeys:
+            async with _EVALUATING_ROWS_LOCK:
+                total_evaluating_rows = await tasks_sql.count_task_evaluations_by_status("evaluating", config.psql_db)
+                if total_evaluating_rows >= cst.MAX_EVALUATING_ROWS:
+                    logger.info(
+                        f"Skipping pending evaluation row for task {task.task_id} hotkey {hotkey}; "
+                        f"global evaluating rows at cap ({total_evaluating_rows}/{cst.MAX_EVALUATING_ROWS})"
+                    )
+                    continue
 
-    try:
-        evaluated_hotkeys, failed_hotkeys = await evaluate_and_score_hotkeys(task, all_hotkeys, num_gpus, config)
-        not_evaluated_hotkeys = [h for h in all_hotkeys if h not in set(evaluated_hotkeys)]
-        failed_set = set(failed_hotkeys)
-        failed_set.update(not_evaluated_hotkeys)
-        success_hotkeys = [hotkey for hotkey in evaluated_hotkeys if hotkey not in failed_set]
+                await tasks_sql.update_task_evaluations_status(task.task_id, [hotkey], "evaluating", config.psql_db)
 
-        await tasks_sql.update_task_evaluations_status(task.task_id, success_hotkeys, "success", config.psql_db)
-        await tasks_sql.update_task_evaluations_status(
-            task.task_id,
-            list(failed_set),
-            "failure",
-            config.psql_db,
-        )
-    except Exception as e:
-        logger.error(f"Error evaluating pending pairs for task {task.task_id}: {e}", exc_info=True)
-        await tasks_sql.update_task_evaluations_status(task.task_id, all_hotkeys, "failure", config.psql_db)
+        try:
+            evaluated_hotkeys, failed_hotkeys = await evaluate_and_score_hotkeys(task, [hotkey], num_gpus, config)
+            not_evaluated_hotkeys = [h for h in [hotkey] if h not in set(evaluated_hotkeys)]
+            failed_set = set(failed_hotkeys)
+            failed_set.update(not_evaluated_hotkeys)
+            success_hotkeys = [evaluated_hotkey for evaluated_hotkey in evaluated_hotkeys if evaluated_hotkey not in failed_set]
+
+            await tasks_sql.update_task_evaluations_status(task.task_id, success_hotkeys, "success", config.psql_db)
+            await tasks_sql.update_task_evaluations_status(
+                task.task_id,
+                list(failed_set),
+                "failure",
+                config.psql_db,
+            )
+        except Exception as e:
+            logger.error(f"Error evaluating pending pairs for task {task.task_id}: {e}", exc_info=True)
+            await tasks_sql.update_task_evaluations_status(task.task_id, [hotkey], "failure", config.psql_db)
 
     await _finalize_task_status_from_evaluations(task, config)
 
