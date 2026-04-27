@@ -76,7 +76,8 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
     """Create the axolotl config file with appropriate settings."""
 
     # Needs to be at the top to change dataset type to force correct config used.
-    if isinstance(dataset_type, EnvironmentDatasetType) and dataset_type.environment_name == "swe":
+    is_swe_env = isinstance(dataset_type, EnvironmentDatasetType) and dataset_type.environment_name == "swe"
+    if is_swe_env:
         print("SWE environment task: switching to SFT on SWE-bench/SWE-smith-trajectories", flush=True)
         dataset = "SWE-bench/SWE-smith-trajectories"
         file_format = FileFormat.HF.value
@@ -97,6 +98,8 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
         config = yaml.safe_load(file)
 
     config["datasets"] = [create_dataset_entry(dataset, dataset_type, FileFormat(file_format))]
+    if is_swe_env:
+        config["datasets"][0]["split"] = "tool"
     model_path = str(train_paths.get_text_base_model_path(model))
     config["base_model"] = model_path
     config["mlflow_experiment_name"] = dataset
