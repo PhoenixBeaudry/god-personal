@@ -90,7 +90,9 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
             flush=True,
         )
         dataset = train_cst.SWE_TRAJECTORIES_LOCAL_DIR
-        file_format = FileFormat.S3.value
+        # Keep HF so axolotl loads the local dir as an HF dataset (parquet auto-detect via dataset card),
+        # and so the JSON path-rewriting block below is skipped.
+        file_format = FileFormat.HF.value
         dataset_type = ChatTemplateDatasetType(
             chat_template="chatml",
             chat_column="messages",
