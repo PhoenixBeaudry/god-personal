@@ -119,8 +119,8 @@ class TestFullPipeline:
             )
 
             assert result.augmented_model_id == "test/augmented-abc123"
-            assert result.baseline_stats.loss > 0
-            assert result.baseline_stats.grad_norm > 0
+            assert result.baseline_stats.training.init_loss > 0
+            assert len(result.baseline_stats.training.grad_norms) > 0
 
     def test_stats_only_no_augmentation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +133,7 @@ class TestFullPipeline:
             )
 
             assert result.augmented_model_id is None
-            assert result.baseline_stats.loss > 0
+            assert result.baseline_stats.training.init_loss > 0
 
     def test_response_json_roundtrip(self):
         """ModelPrepResponse serialises and deserialises correctly — this is how
@@ -151,8 +151,8 @@ class TestFullPipeline:
             parsed = ModelPrepResponse.model_validate_json(json_str)
 
             assert parsed.augmented_model_id == result.augmented_model_id
-            assert abs(parsed.baseline_stats.loss - result.baseline_stats.loss) < 1e-6
-            assert abs(parsed.baseline_stats.grad_norm - result.baseline_stats.grad_norm) < 1e-6
+            assert abs(parsed.baseline_stats.training.init_loss - result.baseline_stats.training.init_loss) < 1e-6
+            assert parsed.baseline_stats.dataset.vocab_size == result.baseline_stats.dataset.vocab_size
 
     def test_each_augmentation_type_produces_different_stats(self):
         """Each augmentation type should change the model differently."""
@@ -173,7 +173,7 @@ class TestFullPipeline:
                 stats_by_type[aug_type] = stats
 
             # At least some types should produce different losses
-            losses = [s.loss for s in stats_by_type.values()]
+            losses = [s.training.init_loss for s in stats_by_type.values()]
             assert len(set(f"{l:.4f}" for l in losses)) > 1, "Expected different losses for different augmentation types"
 
 

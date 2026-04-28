@@ -52,8 +52,8 @@ LAYER_TYPE_PATTERNS = {
         r"\.query_key_value\.",
     ],
     "attention_output": [
-        r"\.o_proj\.", r"\.out_proj\.", r"\.attn\.c_proj\.", r"\.dense\b(?=.*attn)",
-        r"\.self_attn\.dense\.",
+        r"\.o_proj\.", r"\.out_proj\.", r"\.attn\.c_proj\.",
+        r"self_attn.*\.dense\.", r"self_attention.*\.dense\.",
     ],
     "ffn_up": [
         r"\.up_proj\.", r"\.gate_proj\.", r"\.c_fc\.", r"\.fc1\.",
@@ -256,20 +256,7 @@ def _compute_training_dynamics(
         if len(list(module.children())) == 0 and any(p.requires_grad for p in module.parameters(recurse=False)):
             hooks.append(module.register_forward_hook(make_activation_hook(name)))
 
-    # --- Backward hooks for grad stats ---
-    grad_accum: dict[str, list[torch.Tensor]] = defaultdict(list)
-
-    def make_grad_hook(name):
-        def hook(module, grad_input, grad_output):
-            if grad_output and grad_output[0] is not None:
-                grad_accum[name].append(grad_output[0].detach().float())
-        return hook
-
-    for name, module in model.named_modules():
-        if len(list(module.children())) == 0 and any(p.requires_grad for p in module.parameters(recurse=False)):
-            hooks.append(module.register_full_backward_hook(make_grad_hook(name)))
-
-    # --- Single forward+backward for hooks ---
+    # --- Single forward+backward for hooks + weight gradients ---
     model.train()
     model.zero_grad()
     batch = next(iter(loader))
@@ -284,12 +271,12 @@ def _compute_training_dynamics(
         if param.grad is not None:
             grad_norms[name] = float(param.grad.norm(2).item())
 
-    # Per-layer grad stats with SVD
+    # Per-layer grad stats with SVD (using weight gradients, not activation gradients)
     grad_stats = {}
-    for name, grads in grad_accum.items():
-        if not grads:
+    for name, param in model.named_parameters():
+        if param.grad is None:
             continue
-        g = grads[0]
+        g = param.grad.detach().float()
         if g.dim() < 2:
             g = g.unsqueeze(0)
         g_2d = g.reshape(g.shape[0], -1) if g.dim() > 2 else g
@@ -298,9 +285,9 @@ def _compute_training_dynamics(
         rms = float(torch.sqrt(torch.mean(g_2d ** 2)).item())
         max_abs = float(torch.max(torch.abs(g_2d)).item())
 
-        k = min(64, min(g_2d.shape))
+        k = min(8, min(g_2d.shape))
         try:
-            _, s, _ = torch.svd_lowrank(g_2d.float(), q=k)
+            _, s, _ = torch.svd_lowrank(g_2d, q=k)
             top_sv = s.tolist()
         except Exception:
             top_sv = []
