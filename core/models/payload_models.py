@@ -11,6 +11,7 @@ from pydantic import model_validator
 
 from core import constants as cst
 from core.models.utility_models import AugmentationConfig
+from core.models.utility_models import BaselineStats
 from core.models.utility_models import EnvironmentDatasetType
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType
@@ -46,6 +47,7 @@ class TrainRequest(BaseModel):
     hours_to_complete: float
     expected_repo_name: str | None = None
     augmentation_config: AugmentationConfig | None = None
+    baseline_stats: BaselineStats | None = None
 
 
 class TrainRequestText(TrainRequest):
@@ -130,6 +132,20 @@ class JobStatusPayload(BaseModel):
 class JobStatusResponse(BaseModel):
     task_id: UUID
     status: JobStatus
+
+
+class ModelPrepRequest(BaseModel):
+    model_id: str
+    training_data_url: str
+    augmentation_config: AugmentationConfig | None = None
+    gpu_ids: list[int] = [0]
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class ModelPrepResponse(BaseModel):
+    augmented_model_id: str | None = None
+    baseline_stats: BaselineStats | None = None
 
 
 class EvaluationRequest(TrainRequest):

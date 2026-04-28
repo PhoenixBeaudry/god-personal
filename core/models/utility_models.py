@@ -236,6 +236,11 @@ class AugmentationConfig(BaseModel):
     intensity: float
 
 
+class BaselineStats(BaseModel):
+    loss: float
+    grad_norm: float
+
+
 class GPUInfo(BaseModel):
     gpu_id: int = Field(..., description="GPU ID")
     gpu_type: GPUType = Field(..., description="GPU Type")

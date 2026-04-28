@@ -23,6 +23,7 @@ from validator.utils.cache_clear import manage_models_cache
 from validator.utils.logging import LogContext
 from validator.utils.logging import add_context_tag
 from validator.utils.logging import get_logger
+from validator.utils.model_prep import dispatch_model_prep
 
 
 logger = get_logger(__name__)
@@ -113,6 +114,22 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
             await tasks_sql.update_task(task, config.psql_db)
             task = await get_task_config(task).task_prep_function(task, config.keypair, config.psql_db)
             logger.info(f"THE TASK HAS BEEN PREPPED {task}")
+
+            # Model prep: augmentation + baseline stats (runs on trainer GPU)
+            prep_result = await dispatch_model_prep(
+                model_id=task.model_id,
+                training_data_url=task.training_data,
+                augmentation_config=task.augmentation_config,
+                model_params_count=task.model_params_count,
+                task_type=task.task_type,
+                config=config,
+            )
+            if prep_result is not None:
+                if prep_result.augmented_model_id:
+                    task.augmented_model_id = prep_result.augmented_model_id
+                if prep_result.baseline_stats:
+                    task.baseline_stats = prep_result.baseline_stats
+
             await tasks_sql.update_task(task, config.psql_db)
         except Exception as e:
             logger.error(f"Error during task prep: {e}", exc_info=True)

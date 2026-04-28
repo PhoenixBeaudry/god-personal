@@ -1,0 +1,150 @@
+"""
+Model prep container entrypoint.
+Augments model (if config provided), computes baseline stats, uploads to HF.
+Outputs JSON result on the last line of stdout for the caller to parse.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+
+import torch
+from huggingface_hub import HfApi
+from huggingface_hub import repo_exists
+from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer
+
+from core.models.utility_models import AugmentationConfig
+from core.models.utility_models import AugmentationScope
+from core.models.utility_models import AugmentationType
+from core.models.utility_models import BaselineStats
+from trainer.model_prep.augmentation import augment_model
+from trainer.model_prep.stats import compute_baseline_stats
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", required=True, help="HuggingFace model ID")
+    parser.add_argument("--training-data", required=True, help="S3 URL or local path to training data")
+    parser.add_argument("--aug-type", choices=[t.value for t in AugmentationType], default=None)
+    parser.add_argument("--scope", choices=[s.value for s in AugmentationScope], default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--intensity", type=float, default=None)
+    return parser.parse_args()
+
+
+def build_augmentation_config(args) -> AugmentationConfig | None:
+    if args.aug_type is None:
+        return None
+    return AugmentationConfig(
+        aug_type=AugmentationType(args.aug_type),
+        scope=AugmentationScope(args.scope),
+        seed=args.seed,
+        intensity=args.intensity,
+    )
+
+
+def generate_anonymous_repo_name(model_id: str, seed: int) -> str:
+    """Generate an opaque repo name that doesn't leak the original model identity."""
+    hf_username = os.environ.get("HUGGINGFACE_USERNAME", "gradients-io")
+    hash_input = f"{model_id}:{seed}"
+    repo_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+    return f"{hf_username}/augmented-{repo_hash}"
+
+
+def load_training_data(path: str, max_records: int = 100) -> list[dict]:
+    """Load training data from a JSON file."""
+    from core.utils import download_s3_file
+    import asyncio
+
+    if path.startswith("http"):
+        local_path = asyncio.run(download_s3_file(path))
+    else:
+        local_path = path
+
+    with open(local_path, "r") as f:
+        data = json.load(f)
+
+    if isinstance(data, list):
+        return data[:max_records]
+    return []
+
+
+def upload_augmented_model(model, tokenizer, repo_id: str, hf_token: str) -> None:
+    """Upload augmented model to HuggingFace, scrubbing identity."""
+    print(f"Uploading augmented model to {repo_id}")
+
+    model.config._name_or_path = repo_id
+    model.push_to_hub(repo_id, token=hf_token, private=True)
+    tokenizer.push_to_hub(repo_id, token=hf_token, private=True)
+
+    # Scrub _name_or_path from config
+    api = HfApi(token=hf_token)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = api.hf_hub_download(repo_id=repo_id, filename="config.json", local_dir=tmp, token=hf_token)
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        if "_name_or_path" in config:
+            del config["_name_or_path"]
+            modified_path = os.path.join(tmp, "config_clean.json")
+            with open(modified_path, "w") as f:
+                json.dump(config, f, indent=2)
+            api.upload_file(
+                path_or_fileobj=modified_path,
+                path_in_repo="config.json",
+                repo_id=repo_id,
+            )
+
+    print(f"Upload complete: {repo_id}")
+
+
+def main():
+    args = parse_args()
+    aug_config = build_augmentation_config(args)
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN", "")
+
+    print(f"Loading model: {args.model}", flush=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16, token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, token=hf_token)
+    model.to(device)
+
+    augmented_model_id = None
+
+    if aug_config is not None:
+        repo_id = generate_anonymous_repo_name(args.model, aug_config.seed)
+
+        if repo_exists(repo_id, token=hf_token):
+            print(f"Augmented model already exists at {repo_id}, skipping augmentation")
+            augmented_model_id = repo_id
+        else:
+            print(f"Applying augmentation: {aug_config.aug_type.value}", flush=True)
+            augment_model(model, aug_config)
+            upload_augmented_model(model, tokenizer, repo_id, hf_token)
+            augmented_model_id = repo_id
+
+    # Compute baseline stats
+    print("Computing baseline stats...", flush=True)
+    data_records = load_training_data(args.training_data)
+
+    if data_records and tokenizer is not None:
+        stats = compute_baseline_stats(model, tokenizer, data_records)
+    else:
+        print("Warning: no training data available for stats, using defaults")
+        stats = BaselineStats(loss=0.0, grad_norm=0.0)
+
+    print(f"Baseline stats: loss={stats.loss:.4f}, grad_norm={stats.grad_norm:.4f}", flush=True)
+
+    # Output result as JSON on last line (parsed by caller)
+    result = {
+        "augmented_model_id": augmented_model_id,
+        "baseline_stats": stats.model_dump(),
+    }
+    print(json.dumps(result), flush=True)
+
+
+if __name__ == "__main__":
+    main()

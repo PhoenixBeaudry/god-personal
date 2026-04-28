@@ -89,6 +89,8 @@ MODEL_PARAMS_COUNT = "model_params_count"
 BACKEND = "backend"
 YARN_FACTOR = "yarn_factor"
 AUGMENTATION_CONFIG = "augmentation_config"
+AUGMENTED_MODEL_ID = "augmented_model_id"
+BASELINE_STATS = "baseline_stats"
 
 # Instruct Text Tasks Table Columns
 FIELD_SYSTEM = "field_system"

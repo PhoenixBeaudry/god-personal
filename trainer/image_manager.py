@@ -10,6 +10,7 @@ from docker.errors import BuildError
 from docker.models.containers import Container
 
 import trainer.utils.training_paths as train_paths
+from core.models.payload_models import ModelPrepResponse
 from core.models.payload_models import TrainerProxyRequest
 from core.models.payload_models import TrainRequestImage
 from core.models.payload_models import TrainRequestText
@@ -465,6 +466,79 @@ def run_augmentation_container(
     except Exception as ex:
         logger.error(f"Unexpected error in augmentation for task {task_id}: {ex}", extra=log_labels)
         return 1, ex
+
+    finally:
+        if container:
+            try:
+                container.remove(force=True)
+            except Exception as cleanup_err:
+                logger.warning(f"Failed to remove container {container_name}: {cleanup_err}", extra=log_labels)
+
+
+def run_model_prep_container(
+    model_id: str,
+    training_data_url: str,
+    augmentation_config=None,
+    gpu_ids: list[int] = [0],
+    log_labels: dict[str, str] | None = None,
+) -> ModelPrepResponse:
+    """Run model prep container: augment model (if config set) + compute baseline stats."""
+    client = docker.from_env()
+
+    command = [
+        "--model", model_id,
+        "--training-data", training_data_url,
+    ]
+
+    if augmentation_config is not None:
+        command += [
+            "--aug-type", augmentation_config.aug_type.value,
+            "--scope", augmentation_config.scope.value,
+            "--seed", str(augmentation_config.seed),
+            "--intensity", str(augmentation_config.intensity),
+        ]
+
+    env = {
+        "HUGGINGFACE_TOKEN": os.environ.get("HUGGINGFACE_TOKEN", ""),
+        "HUGGINGFACE_USERNAME": os.environ.get("HUGGINGFACE_USERNAME", ""),
+    }
+
+    container_name = f"model-prep-{str(uuid.uuid4())[:8]}"
+    container = None
+    memory_limit, cpu_limit_nanocpus = calculate_container_resources(gpu_ids)
+
+    try:
+        logger.info(f"Starting model prep container: {container_name}", extra=log_labels)
+        container = client.containers.run(
+            image=cst.MODEL_PREP_DOCKER_IMAGE,
+            name=container_name,
+            command=command,
+            labels=log_labels,
+            environment=env,
+            volumes={cst.VOLUME_NAMES[1]: {"bind": "/cache", "mode": "rw"}},
+            device_requests=[docker.types.DeviceRequest(
+                device_ids=[str(i) for i in gpu_ids],
+                capabilities=[["gpu"]],
+            )],
+            mem_limit=memory_limit,
+            nano_cpus=cpu_limit_nanocpus,
+            remove=False,
+            detach=True,
+        )
+
+        stream_container_logs(container, get_all_context_tags())
+
+        result = container.wait()
+        exit_code = result.get("StatusCode", -1)
+        logs_output = container.logs().decode("utf-8", errors="ignore")
+
+        if exit_code != 0:
+            error_message = extract_container_error(logs_output)
+            raise RuntimeError(f"Model prep container failed (exit {exit_code}): {error_message}")
+
+        # Container writes JSON result to last line of stdout
+        result_line = logs_output.strip().rsplit("\n", 1)[-1]
+        return ModelPrepResponse.model_validate_json(result_line)
 
     finally:
         if container:

@@ -66,8 +66,10 @@ async def _insert_base_task(connection: Connection, task: AnyTypeRawTask) -> dic
         {cst.STARTED_AT},
         {cst.TERMINATION_AT},
         {cst.YARN_FACTOR},
-        {cst.AUGMENTATION_CONFIG})
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        {cst.AUGMENTATION_CONFIG},
+        {cst.AUGMENTED_MODEL_ID},
+        {cst.BASELINE_STATS})
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING *
     """
     return await connection.fetchrow(
@@ -89,6 +91,8 @@ async def _insert_base_task(connection: Connection, task: AnyTypeRawTask) -> dic
         task.termination_at,
         task.yarn_factor,
         json.dumps(task.augmentation_config.model_dump()) if task.augmentation_config else None,
+        task.augmented_model_id,
+        json.dumps(task.baseline_stats.model_dump()) if task.baseline_stats else None,
     )
 
 
@@ -462,6 +466,8 @@ async def update_task(updated_task: AnyTypeRawTask, psql_db: PSQLDB) -> AnyTypeR
             base_updates = {k: v for k, v in updates.items() if k in base_task_fields}
             if cst.AUGMENTATION_CONFIG in base_updates and base_updates[cst.AUGMENTATION_CONFIG] is not None:
                 base_updates[cst.AUGMENTATION_CONFIG] = json.dumps(base_updates[cst.AUGMENTATION_CONFIG])
+            if cst.BASELINE_STATS in base_updates and base_updates[cst.BASELINE_STATS] is not None:
+                base_updates[cst.BASELINE_STATS] = json.dumps(base_updates[cst.BASELINE_STATS])
             if base_updates:
                 set_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(base_updates.keys())])
                 values = list(base_updates.values())

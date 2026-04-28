@@ -633,21 +633,24 @@ async def _create_training_request(
             f"participant or the training repo was not properly set during tournament registration."
         )
 
+    training_model = task.augmented_model_id or task.model_id
+
     if task.task_type == TaskType.IMAGETASK:
         training_data = TrainRequestImage(
-            model=task.model_id,
+            model=training_model,
             task_id=str(task.task_id),
             hours_to_complete=task.hours_to_complete,
             expected_repo_name=expected_repo_name,
             dataset_zip=task.training_data,
             model_type=task.model_type,
             augmentation_config=task.augmentation_config,
+            baseline_stats=task.baseline_stats,
         )
     else:
         dataset_type = _get_dataset_type(task)
 
         training_data = TrainRequestText(
-            model=task.model_id,
+            model=training_model,
             task_id=str(task.task_id),
             hours_to_complete=task.hours_to_complete,
             expected_repo_name=expected_repo_name,
@@ -655,6 +658,7 @@ async def _create_training_request(
             dataset_type=dataset_type,
             file_format=FileFormat.S3,  # always an S3 since we task prep
             augmentation_config=task.augmentation_config,
+            baseline_stats=task.baseline_stats,
         )
 
     return TrainerProxyRequest(
