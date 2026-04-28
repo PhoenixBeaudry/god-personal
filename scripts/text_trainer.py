@@ -111,7 +111,11 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
 
     config["datasets"] = [create_dataset_entry(dataset, dataset_type, FileFormat(file_format))]
     if is_swe_env:
-        config["datasets"][0]["split"] = train_cst.SWE_TRAJECTORIES_SPLIT
+        # The dataset card declares tool/xml/ticks splits, but we only fetched the tool parquet files;
+        # passing data_files explicitly overrides the card so HF doesn't try to resolve the missing splits.
+        # With a flat list, HF loads it as a single "train" split.
+        config["datasets"][0]["data_files"] = [f"data/{train_cst.SWE_TRAJECTORIES_SPLIT}-*.parquet"]
+        config["datasets"][0].pop("split", None)
     model_path = str(train_paths.get_text_base_model_path(model))
     config["base_model"] = model_path
     config["mlflow_experiment_name"] = dataset
