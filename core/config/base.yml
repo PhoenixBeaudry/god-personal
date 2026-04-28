@@ -12,7 +12,7 @@ dataset_prepared_path:
 val_set_size: 0.05
 output_dir: miner_id_24
 
-sequence_len: 8192
+sequence_len: 4096
 sample_packing: false
 pad_to_sequence_len: true
 trust_remote_code: true
@@ -25,8 +25,8 @@ lora_dropout: 0.05
 lora_target_linear: true
 lora_fan_in_fan_out:
 
-gradient_accumulation_steps: 4
-micro_batch_size: 2
+gradient_accumulation_steps: 2
+micro_batch_size: 1
 num_epochs: 1
 optimizer: adamw_bnb_8bit
 lr_scheduler: cosine
