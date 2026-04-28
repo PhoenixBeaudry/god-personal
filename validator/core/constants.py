@@ -348,6 +348,14 @@ AUGMENTATION_SCOPE_WEIGHTS: dict[AugmentationScope, float] = {
     AugmentationScope.ALL_LAYERS: 0.10,
 }
 
+# Intensity ranges per augmentation type (min, max) — sampled uniformly
+AUGMENTATION_INTENSITY_RANGES: dict[AugmentationType, tuple[float, float]] = {
+    AugmentationType.GAUSSIAN_NOISE: (0.005, 0.02),
+    AugmentationType.WEIGHT_SCALING: (0.8, 1.2),
+    AugmentationType.MAGNITUDE_PRUNING: (0.05, 0.15),
+    AugmentationType.LAYER_REINIT: (0.01, 0.05),
+}
+
 # Environment evaluation constants
 ENV_SERVER_CMD_DEFAULT = "python -m uvicorn _affinetes.server:app --host 0.0.0.0 --port 8001 --workers 1 --loop asyncio"
 BASILICA_GPU_MODELS = ["A100"]

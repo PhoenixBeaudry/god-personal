@@ -26,15 +26,8 @@ def weighted_choice(
 
 def seeded_intensity(aug_type: AugmentationType, rng: random.Random) -> float:
     """Return a random intensity for each augmentation type, driven by the seeded RNG."""
-    if aug_type == AugmentationType.GAUSSIAN_NOISE:
-        return rng.uniform(0.005, 0.02)
-    elif aug_type == AugmentationType.WEIGHT_SCALING:
-        return rng.uniform(0.8, 1.2)
-    elif aug_type == AugmentationType.MAGNITUDE_PRUNING:
-        return rng.uniform(0.05, 0.15)
-    elif aug_type == AugmentationType.LAYER_REINIT:
-        return rng.uniform(0.01, 0.05)
-    return 0.01
+    low, high = vcst.AUGMENTATION_INTENSITY_RANGES.get(aug_type, (0.01, 0.01))
+    return rng.uniform(low, high)
 
 
 def maybe_get_augmentation_config(task_type: TaskType) -> AugmentationConfig | None:
