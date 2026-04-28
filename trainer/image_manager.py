@@ -617,17 +617,18 @@ async def start_training_task(task: TrainerProxyRequest, local_repo_path: str):
         env_urls = []
         env_server_url_str = None
         if task_type == TaskType.ENVIRONMENTTASK:
-            logger.info("Running Environment Server Containers", extra=log_labels)
-            await log_task(training_data.task_id, task.hotkey, "Starting Environment Servers...")
-            for gpu in task.gpu_ids:
-                environment_server_container = await run_environment_server_container(
-                    task.training_data.dataset_type.environment_name, log_labels
-                )
-                env_server_containers.append(environment_server_container)
-                ip_address = await wait_for_env_container_ip(environment_server_container)
-                env_urls.append(f"http://{ip_address}:8000")
-            env_server_url_str = ",".join(env_urls)
-            await log_task(training_data.task_id, task.hotkey, f"Environment servers ready.")
+            if not task.training_data.dataset_type.environment_name == "swe":
+                logger.info("Running Environment Server Containers", extra=log_labels)
+                await log_task(training_data.task_id, task.hotkey, "Starting Environment Servers...")
+                for gpu in task.gpu_ids:
+                    environment_server_container = await run_environment_server_container(
+                        task.training_data.dataset_type.environment_name, log_labels
+                    )
+                    env_server_containers.append(environment_server_container)
+                    ip_address = await wait_for_env_container_ip(environment_server_container)
+                    env_urls.append(f"http://{ip_address}:8000")
+                env_server_url_str = ",".join(env_urls)
+                await log_task(training_data.task_id, task.hotkey, f"Environment servers ready.")
 
         if task_type == TaskType.IMAGETASK:
             container = await asyncio.wait_for(
