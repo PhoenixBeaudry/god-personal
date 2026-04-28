@@ -367,7 +367,7 @@ def run_downloader_container(
     try:
         logger.info(f"Starting downloader container: {container_name}", extra=log_labels)
         container = client.containers.run(
-            image=cst.TRAINER_DOWNLOADER_DOCKER_IMAGE,
+            image="downloader:v1",
             name=container_name,
             command=command,
             labels=log_labels,
