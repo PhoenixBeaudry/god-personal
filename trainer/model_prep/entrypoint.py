@@ -19,7 +19,6 @@ from transformers import AutoTokenizer
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
-from core.models.model_prep_models import BaselineStats
 from trainer.model_prep.augmentation import augment_model
 from trainer.model_prep.stats import compute_baseline_stats
 
@@ -143,15 +142,16 @@ def main():
     if data_records and tokenizer is not None:
         stats = compute_baseline_stats(model, tokenizer, data_records)
     else:
-        print("Warning: no training data available for stats, using defaults")
-        stats = BaselineStats(loss=0.0, grad_norm=0.0)
+        print("Warning: no training data available for stats", flush=True)
+        stats = None
 
-    print(f"Baseline stats: loss={stats.loss:.4f}, grad_norm={stats.grad_norm:.4f}", flush=True)
+    if stats:
+        print(f"Baseline stats: loss={stats.training.init_loss:.4f}, entropy={stats.training.output_entropy:.4f}", flush=True)
 
     # Output result as JSON on last line (parsed by caller)
     result = {
         "augmented_model_id": augmented_model_id,
-        "baseline_stats": stats.model_dump(),
+        "baseline_stats": stats.model_dump() if stats else None,
     }
     print(json.dumps(result), flush=True)
 

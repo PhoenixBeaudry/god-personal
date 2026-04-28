@@ -46,7 +46,6 @@ class TrainRequest(BaseModel):
     task_id: str
     hours_to_complete: float
     expected_repo_name: str | None = None
-    augmentation_config: AugmentationConfig | None = None
     baseline_stats: BaselineStats | None = None
 
 

@@ -643,7 +643,6 @@ async def _create_training_request(
             expected_repo_name=expected_repo_name,
             dataset_zip=task.training_data,
             model_type=task.model_type,
-            augmentation_config=task.augmentation_config,
             baseline_stats=task.baseline_stats,
         )
     else:
@@ -657,7 +656,6 @@ async def _create_training_request(
             dataset=task.training_data,
             dataset_type=dataset_type,
             file_format=FileFormat.S3,  # always an S3 since we task prep
-            augmentation_config=task.augmentation_config,
             baseline_stats=task.baseline_stats,
         )
 

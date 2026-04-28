@@ -9,7 +9,6 @@ VOLUME_NAMES = [CHECKPOINTS_VOLUME_NAME, CACHE_VOLUME_NAME]
 HF_UPLOAD_DOCKER_IMAGE = "diagonalge/hf-uploader:latest"
 TRAINER_DOWNLOADER_DOCKER_IMAGE = "diagonalge/trainer-downloader:latest"
 CACHE_CLEANER_DOCKER_IMAGE = "diagonalge/cache-cleaner:latest"
-MODEL_AUGMENTATION_DOCKER_IMAGE = "wanderingweights/model-augmentor:latest"
 MODEL_PREP_DOCKER_IMAGE = "wanderingweights/model-prep:latest"
 IMAGE_TASKS_HF_SUBFOLDER_PATH = "checkpoints"
 VECTOR_URL = "http://localhost:8688"  # Vector http_server for logging
