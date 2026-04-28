@@ -28,7 +28,7 @@ from validator.utils.call_endpoint import post_to_nineteen_image
 from validator.utils.llm import convert_to_nineteen_payload
 from validator.utils.llm import post_to_nineteen_chat_with_reasoning
 from validator.utils.logging import get_logger
-from validator.tasks.synthetic_scheduler import maybe_get_augmentation_config
+from validator.utils.augmentation_decision import maybe_get_augmentation_config
 from validator.utils.util import retry_with_backoff
 
 
