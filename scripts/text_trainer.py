@@ -84,6 +84,11 @@ def prepare_swe_trajectories_jsonl(output_dir: str) -> str:
         verification_mode="no_checks",
     )
 
+    # Trajectories can run to hundreds of thousands of tokens (long tool outputs / code dumps).
+    # Tokenizing them is slow and pointless when axolotl truncates to sequence_len anyway,
+    # so cap by a generous character budget (~4 chars/token for English/code).
+    MAX_CHARS = 32_000
+
     def normalize(row):
         try:
             msgs = json.loads(row["messages"])
@@ -105,12 +110,24 @@ def prepare_swe_trajectories_jsonl(output_dir: str) -> str:
         # final turn is the assistant's; trim trailing tool/user messages.
         while cleaned and cleaned[-1]["role"] != "assistant":
             cleaned.pop()
+        # Drop turns from the front until total size is within budget, then re-trim
+        # so we still end on assistant.
+        total = sum(len(m["content"]) for m in cleaned)
+        while total > MAX_CHARS and len(cleaned) > 2:
+            total -= len(cleaned[0]["content"])
+            cleaned = cleaned[1:]
+        while cleaned and cleaned[-1]["role"] != "assistant":
+            cleaned.pop()
         return {"messages": cleaned}
 
     drop = [c for c in ds.column_names if c != "messages"]
     print("Parsing trajectory message JSON strings...", flush=True)
     ds = ds.map(normalize, remove_columns=drop)
-    ds = ds.filter(lambda r: len(r["messages"]) >= 2 and r["messages"][-1]["role"] == "assistant")
+    ds = ds.filter(
+        lambda r: len(r["messages"]) >= 2
+        and r["messages"][-1]["role"] == "assistant"
+        and sum(len(m["content"]) for m in r["messages"]) <= MAX_CHARS
+    )
 
     print(f"Writing {len(ds)} preprocessed examples to {out_path}", flush=True)
     ds.to_json(out_path, lines=True)
