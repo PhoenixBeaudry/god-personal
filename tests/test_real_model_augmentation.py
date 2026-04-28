@@ -7,9 +7,9 @@ Run with: python -m pytest tests/test_real_model_augmentation.py -v -o addopts= 
 import pytest
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from core.models.utility_models import AugmentationConfig
-from core.models.utility_models import AugmentationScope
-from core.models.utility_models import AugmentationType
+from core.models.model_prep_models import AugmentationConfig
+from core.models.model_prep_models import AugmentationScope
+from core.models.model_prep_models import AugmentationType
 from trainer.model_prep.augmentation import augment_model
 from trainer.model_prep.stats import compute_baseline_stats
 

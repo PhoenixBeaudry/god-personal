@@ -7,9 +7,9 @@ import random
 
 import pytest
 
-from core.models.utility_models import AugmentationConfig
-from core.models.utility_models import AugmentationScope
-from core.models.utility_models import AugmentationType
+from core.models.model_prep_models import AugmentationConfig
+from core.models.model_prep_models import AugmentationScope
+from core.models.model_prep_models import AugmentationType
 from core.models.utility_models import TaskType
 from validator.utils.augmentation_decision import (
     maybe_get_augmentation_config,

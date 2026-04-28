@@ -5,7 +5,7 @@ Run with: python -m pytest tests/test_layer_selection_edge_cases.py -v -o addopt
 
 import pytest
 
-from core.models.utility_models import AugmentationScope
+from core.models.model_prep_models import AugmentationScope
 from trainer.model_prep.augmentation import select_target_layers
 
 

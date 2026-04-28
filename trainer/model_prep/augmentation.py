@@ -10,9 +10,9 @@ from collections import defaultdict
 import torch
 import numpy as np
 
-from core.models.utility_models import AugmentationConfig
-from core.models.utility_models import AugmentationScope
-from core.models.utility_models import AugmentationType
+from core.models.model_prep_models import AugmentationConfig
+from core.models.model_prep_models import AugmentationScope
+from core.models.model_prep_models import AugmentationType
 
 
 def select_target_layers(

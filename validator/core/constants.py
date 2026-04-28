@@ -3,8 +3,8 @@ from datetime import date
 
 from core.constants import GRPO_DEFAULT_FIELD_PROMPT
 from core.constants import NETUID
-from core.models.utility_models import AugmentationScope
-from core.models.utility_models import AugmentationType
+from core.models.model_prep_models import AugmentationScope
+from core.models.model_prep_models import AugmentationType
 
 
 RAYONLABS_HF_USERNAME = "gradients-io-tournaments"  # "besimray"  # "rayonlabs"

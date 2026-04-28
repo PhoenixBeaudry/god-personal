@@ -10,8 +10,8 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from core import constants as cst
-from core.models.utility_models import AugmentationConfig
-from core.models.utility_models import BaselineStats
+from core.models.model_prep_models import AugmentationConfig
+from core.models.model_prep_models import BaselineStats
 from core.models.utility_models import EnvironmentDatasetType
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType

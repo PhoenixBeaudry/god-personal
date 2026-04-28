@@ -6,7 +6,7 @@ Run with: python -m pytest tests/test_routing.py -v -o addopts=
 
 import pytest
 
-from core.models.utility_models import BaselineStats
+from core.models.model_prep_models import BaselineStats
 from core.models.utility_models import InstructTextDatasetType
 from core.models.payload_models import ModelPrepResponse
 from core.models.payload_models import TrainRequestText

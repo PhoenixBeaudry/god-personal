@@ -8,8 +8,8 @@ import httpx
 from core.models.payload_models import ModelPrepRequest
 from core.models.payload_models import ModelPrepResponse
 from core.models.tournament_models import GpuRequirement
-from core.models.utility_models import AugmentationConfig
-from core.models.utility_models import BaselineStats
+from core.models.model_prep_models import AugmentationConfig
+from core.models.model_prep_models import BaselineStats
 from validator.core.config import Config
 from validator.core.constants import MODEL_PREP_ENDPOINT
 from validator.tournament.orchestrator import _check_suitable_gpus

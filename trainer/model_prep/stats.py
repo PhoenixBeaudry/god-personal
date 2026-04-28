@@ -5,7 +5,7 @@ Baseline stats collection: loss and gradient norms on a training data subset.
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from core.models.utility_models import BaselineStats
+from core.models.model_prep_models import BaselineStats
 
 
 class SimpleTextDataset(Dataset):

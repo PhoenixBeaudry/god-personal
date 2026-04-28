@@ -13,9 +13,9 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from core.constants import YARN_VALID_FACTORS
-from core.models.utility_models import AugmentationConfig
+from core.models.model_prep_models import AugmentationConfig
 from core.models.utility_models import Backend
-from core.models.utility_models import BaselineStats
+from core.models.model_prep_models import BaselineStats
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
 from core.models.utility_models import FileFormat

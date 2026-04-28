@@ -6,9 +6,9 @@ No heavy dependencies — only stdlib, core models, and validator constants.
 import random
 
 import validator.core.constants as vcst
-from core.models.utility_models import AugmentationConfig
-from core.models.utility_models import AugmentationScope
-from core.models.utility_models import AugmentationType
+from core.models.model_prep_models import AugmentationConfig
+from core.models.model_prep_models import AugmentationScope
+from core.models.model_prep_models import AugmentationType
 from core.models.utility_models import TaskType
 
 
