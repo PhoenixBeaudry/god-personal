@@ -101,12 +101,16 @@ def prepare_swe_trajectories_jsonl(output_dir: str) -> str:
                 )
             if role and content:
                 cleaned.append({"role": role, "content": str(content)})
+        # axolotl's chat_template strategy can only compute the train mask when the
+        # final turn is the assistant's; trim trailing tool/user messages.
+        while cleaned and cleaned[-1]["role"] != "assistant":
+            cleaned.pop()
         return {"messages": cleaned}
 
     drop = [c for c in ds.column_names if c != "messages"]
     print("Parsing trajectory message JSON strings...", flush=True)
     ds = ds.map(normalize, remove_columns=drop)
-    ds = ds.filter(lambda r: len(r["messages"]) >= 2)
+    ds = ds.filter(lambda r: len(r["messages"]) >= 2 and r["messages"][-1]["role"] == "assistant")
 
     print(f"Writing {len(ds)} preprocessed examples to {out_path}", flush=True)
     ds.to_json(out_path, lines=True)
