@@ -63,6 +63,55 @@ def patch_wandb_symlinks(base_dir: str):
                     pathlib.Path(full_path).touch()
 
 
+def prepare_swe_trajectories_jsonl(output_dir: str) -> str:
+    """SWE-smith-trajectories stores `messages` as a JSON string (with multimodal content blocks).
+    axolotl's chat_template processor needs a list of {role, content} dicts, so we parse, flatten
+    text blocks, drop incomplete rows, and emit a JSONL file at output_dir/swe_smith_tool.jsonl.
+    """
+    from datasets import load_dataset
+
+    os.makedirs(output_dir, exist_ok=True)
+    out_path = os.path.join(output_dir, "swe_smith_tool.jsonl")
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+        print(f"Reusing preprocessed SWE dataset at {out_path}", flush=True)
+        return out_path
+
+    print(f"Loading raw SWE parquet from {train_cst.SWE_TRAJECTORIES_LOCAL_DIR}...", flush=True)
+    ds = load_dataset(
+        train_cst.SWE_TRAJECTORIES_LOCAL_DIR,
+        data_files=[f"data/{train_cst.SWE_TRAJECTORIES_SPLIT}-*.parquet"],
+        split="train",
+    )
+
+    def normalize(row):
+        try:
+            msgs = json.loads(row["messages"])
+        except (TypeError, ValueError):
+            return {"messages": []}
+        cleaned = []
+        for m in msgs:
+            role = m.get("role")
+            content = m.get("content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    b.get("text", "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+            if role and content:
+                cleaned.append({"role": role, "content": str(content)})
+        return {"messages": cleaned}
+
+    drop = [c for c in ds.column_names if c != "messages"]
+    print("Parsing trajectory message JSON strings...", flush=True)
+    ds = ds.map(normalize, remove_columns=drop)
+    ds = ds.filter(lambda r: len(r["messages"]) >= 2)
+
+    print(f"Writing {len(ds)} preprocessed examples to {out_path}", flush=True)
+    ds.to_json(out_path, lines=True)
+    return out_path
+
+
 def copy_dataset_to_axolotl_directories(dataset_path):
     dataset_filename = os.path.basename(dataset_path)
     data_path, root_path = train_paths.get_axolotl_dataset_paths(dataset_filename)
@@ -89,10 +138,10 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
             f"SWE environment task: switching to SFT on local {train_cst.SWE_TRAJECTORIES_LOCAL_DIR}",
             flush=True,
         )
-        dataset = train_cst.SWE_TRAJECTORIES_LOCAL_DIR
-        # Keep HF so axolotl loads the local dir as an HF dataset (parquet auto-detect via dataset card),
-        # and so the JSON path-rewriting block below is skipped.
-        file_format = FileFormat.HF.value
+        # Parse the JSON-string messages into proper chat_template-shaped rows and emit JSONL,
+        # then point axolotl at that file (the JSON path-rewriting block below sets data_files).
+        dataset = prepare_swe_trajectories_jsonl(train_cst.AXOLOTL_DIRECTORIES["data"])
+        file_format = FileFormat.JSON.value
         dataset_type = ChatTemplateDatasetType(
             chat_template="chatml",
             chat_column="messages",
@@ -110,12 +159,6 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
         config = yaml.safe_load(file)
 
     config["datasets"] = [create_dataset_entry(dataset, dataset_type, FileFormat(file_format))]
-    if is_swe_env:
-        # The dataset card declares tool/xml/ticks splits, but we only fetched the tool parquet files;
-        # passing data_files explicitly overrides the card so HF doesn't try to resolve the missing splits.
-        # With a flat list, HF loads it as a single "train" split.
-        config["datasets"][0]["data_files"] = [f"data/{train_cst.SWE_TRAJECTORIES_SPLIT}-*.parquet"]
-        config["datasets"][0].pop("split", None)
     model_path = str(train_paths.get_text_base_model_path(model))
     config["base_model"] = model_path
     config["mlflow_experiment_name"] = dataset
