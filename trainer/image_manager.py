@@ -341,6 +341,7 @@ def run_downloader_container(
     hotkey: str,
     file_format: FileFormat | None = None,
     model_type: ImageModelType | None = None,
+    environment_name: str | None = None,
     log_labels: dict[str, str] | None = None,
 ) -> tuple[int, Exception | None]:
     client = docker.from_env()
@@ -360,6 +361,9 @@ def run_downloader_container(
 
     if model_type:
         command += ["--model-type", model_type]
+
+    if environment_name:
+        command += ["--environment-name", environment_name]
 
     container_name = f"downloader-{task_id}-{str(uuid.uuid4())[:8]}"
     container = None
@@ -585,6 +589,11 @@ async def start_training_task(task: TrainerProxyRequest, local_repo_path: str):
             hotkey=task.hotkey,
             file_format=getattr(training_data, "file_format", None),
             model_type=training_data.model_type if task_type == TaskType.IMAGETASK else None,
+            environment_name=(
+                training_data.dataset_type.environment_name
+                if task_type == TaskType.ENVIRONMENTTASK
+                else None
+            ),
             log_labels=log_labels,
         )
 

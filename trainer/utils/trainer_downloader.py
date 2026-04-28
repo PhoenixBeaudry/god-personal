@@ -159,6 +159,7 @@ async def main():
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--file-format")
     parser.add_argument("--model-type", choices=[ImageModelType.FLUX.value, ImageModelType.SDXL.value, ImageModelType.Z_IMAGE.value, ImageModelType.QWEN_IMAGE.value])
+    parser.add_argument("--environment-name", default=None)
     args = parser.parse_args()
 
     dataset_dir = cst.CACHE_DATASETS_DIR
@@ -213,6 +214,25 @@ async def main():
         #     prompt_text="Interact with this environment.",
         #     prompt_field="prompt",
         # )
+        if args.environment_name == "swe":
+            print(
+                f"SWE env detected: pre-downloading {cst.SWE_TRAJECTORIES_REPO_ID} "
+                f"(split={cst.SWE_TRAJECTORIES_SPLIT}) to {cst.SWE_TRAJECTORIES_LOCAL_DIR}",
+                flush=True,
+            )
+            os.makedirs(cst.SWE_TRAJECTORIES_LOCAL_DIR, exist_ok=True)
+            snapshot_download(
+                repo_id=cst.SWE_TRAJECTORIES_REPO_ID,
+                repo_type="dataset",
+                local_dir=cst.SWE_TRAJECTORIES_LOCAL_DIR,
+                local_dir_use_symlinks=False,
+                allow_patterns=[
+                    f"data/{cst.SWE_TRAJECTORIES_SPLIT}-*",
+                    "*.md",
+                    "*.json",
+                    ".gitattributes",
+                ],
+            )
     else:
         dataset_path, _ = await download_text_dataset(args.task_id, args.dataset, args.file_format, dataset_dir)
         model_path = await download_axolotl_base_model(args.model, model_dir)

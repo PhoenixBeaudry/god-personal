@@ -78,8 +78,18 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
     # Needs to be at the top to change dataset type to force correct config used.
     is_swe_env = isinstance(dataset_type, EnvironmentDatasetType) and dataset_type.environment_name == "swe"
     if is_swe_env:
-        print("SWE environment task: switching to SFT on SWE-bench/SWE-smith-trajectories", flush=True)
-        dataset = "SWE-bench/SWE-smith-trajectories"
+        # The downloader container pre-fetches this repo to SWE_TRAJECTORIES_LOCAL_DIR;
+        # /cache is mounted read-only in the trainer, so we must avoid hitting HF Hub here.
+        if not os.path.isdir(train_cst.SWE_TRAJECTORIES_LOCAL_DIR):
+            sys.exit(
+                f"SWE trajectories dataset not found at {train_cst.SWE_TRAJECTORIES_LOCAL_DIR}. "
+                "Was the downloader container run with --environment-name swe?"
+            )
+        print(
+            f"SWE environment task: switching to SFT on local {train_cst.SWE_TRAJECTORIES_LOCAL_DIR}",
+            flush=True,
+        )
+        dataset = train_cst.SWE_TRAJECTORIES_LOCAL_DIR
         file_format = FileFormat.HF.value
         dataset_type = ChatTemplateDatasetType(
             chat_template="chatml",
@@ -99,7 +109,7 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
 
     config["datasets"] = [create_dataset_entry(dataset, dataset_type, FileFormat(file_format))]
     if is_swe_env:
-        config["datasets"][0]["split"] = "tool"
+        config["datasets"][0]["split"] = train_cst.SWE_TRAJECTORIES_SPLIT
     model_path = str(train_paths.get_text_base_model_path(model))
     config["base_model"] = model_path
     config["mlflow_experiment_name"] = dataset
