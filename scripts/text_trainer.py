@@ -81,6 +81,7 @@ def prepare_swe_trajectories_jsonl(output_dir: str) -> str:
         train_cst.SWE_TRAJECTORIES_LOCAL_DIR,
         data_files=[f"data/{train_cst.SWE_TRAJECTORIES_SPLIT}-*.parquet"],
         split="train",
+        verification_mode="no_checks",
     )
 
     def normalize(row):
