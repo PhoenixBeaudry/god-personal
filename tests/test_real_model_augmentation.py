@@ -47,9 +47,10 @@ class TestBaselineVsAugmented:
     def test_base_model_produces_valid_stats(self, model_and_tokenizer):
         model_id, tokenizer = model_and_tokenizer
         stats = self._get_stats(model_id, tokenizer)
-        print(f"Base model: loss={stats.loss:.4f}, grad_norm={stats.grad_norm:.4f}")
-        assert stats.loss > 0
-        assert stats.grad_norm > 0
+        print(f"Base model: loss={stats.training.init_loss:.4f}, entropy={stats.training.output_entropy:.4f}")
+        assert stats.training.init_loss > 0
+        assert stats.training.output_entropy > 0
+        assert len(stats.training.grad_norms) > 0
 
     def test_gaussian_noise_changes_loss(self, model_and_tokenizer):
         model_id, tokenizer = model_and_tokenizer
@@ -61,8 +62,8 @@ class TestBaselineVsAugmented:
             seed=42,
             intensity=0.02,
         ))
-        print(f"Gaussian noise: base_loss={base_stats.loss:.4f}, aug_loss={aug_stats.loss:.4f}")
-        assert aug_stats.loss != base_stats.loss
+        print(f"Gaussian noise: base_loss={base_stats.training.init_loss:.4f}, aug_loss={aug_stats.training.init_loss:.4f}")
+        assert aug_stats.training.init_loss != base_stats.training.init_loss
 
     def test_weight_scaling_changes_loss(self, model_and_tokenizer):
         model_id, tokenizer = model_and_tokenizer
@@ -74,8 +75,8 @@ class TestBaselineVsAugmented:
             seed=42,
             intensity=1.1,
         ))
-        print(f"Weight scaling: base_loss={base_stats.loss:.4f}, aug_loss={aug_stats.loss:.4f}")
-        assert aug_stats.loss != base_stats.loss
+        print(f"Weight scaling: base_loss={base_stats.training.init_loss:.4f}, aug_loss={aug_stats.training.init_loss:.4f}")
+        assert aug_stats.training.init_loss != base_stats.training.init_loss
 
     def test_magnitude_pruning_changes_loss(self, model_and_tokenizer):
         model_id, tokenizer = model_and_tokenizer
@@ -87,8 +88,8 @@ class TestBaselineVsAugmented:
             seed=42,
             intensity=0.1,
         ))
-        print(f"Magnitude pruning: base_loss={base_stats.loss:.4f}, aug_loss={aug_stats.loss:.4f}")
-        assert aug_stats.loss != base_stats.loss
+        print(f"Magnitude pruning: base_loss={base_stats.training.init_loss:.4f}, aug_loss={aug_stats.training.init_loss:.4f}")
+        assert aug_stats.training.init_loss != base_stats.training.init_loss
 
     def test_layer_reinit_changes_loss(self, model_and_tokenizer):
         model_id, tokenizer = model_and_tokenizer
@@ -100,8 +101,8 @@ class TestBaselineVsAugmented:
             seed=42,
             intensity=0.05,
         ))
-        print(f"Layer reinit: base_loss={base_stats.loss:.4f}, aug_loss={aug_stats.loss:.4f}")
-        assert aug_stats.loss != base_stats.loss
+        print(f"Layer reinit: base_loss={base_stats.training.init_loss:.4f}, aug_loss={aug_stats.training.init_loss:.4f}")
+        assert aug_stats.training.init_loss != base_stats.training.init_loss
 
     def test_augmentation_increases_loss(self, model_and_tokenizer):
         """Augmentation should generally degrade the model — loss goes up."""
@@ -116,8 +117,8 @@ class TestBaselineVsAugmented:
                 seed=42,
                 intensity=0.05,
             ))
-            print(f"  {aug_type.value}: loss={aug_stats.loss:.4f} (base={base_stats.loss:.4f})")
-            if aug_stats.loss > base_stats.loss:
+            print(f"  {aug_type.value}: loss={aug_stats.training.init_loss:.4f} (base={base_stats.training.init_loss:.4f})")
+            if aug_stats.training.init_loss > base_stats.training.init_loss:
                 worse_count += 1
 
         # Most augmentation types should increase loss
@@ -142,8 +143,8 @@ class TestBaselineVsAugmented:
             intensity=0.02,
         ))
 
-        single_delta = abs(single_stats.loss - base_stats.loss)
-        all_delta = abs(all_stats.loss - base_stats.loss)
+        single_delta = abs(single_stats.training.init_loss - base_stats.training.init_loss)
+        all_delta = abs(all_stats.training.init_loss - base_stats.training.init_loss)
         print(f"Single layer delta: {single_delta:.4f}, All layers delta: {all_delta:.4f}")
         assert all_delta > single_delta
 
@@ -161,9 +162,9 @@ class TestBaselineVsAugmented:
         stats1 = self._get_stats(model_id, tokenizer, config)
         stats2 = self._get_stats(model_id, tokenizer, config)
 
-        assert abs(stats1.loss - stats2.loss) < 1e-6
+        assert abs(stats1.training.init_loss - stats2.training.init_loss) < 1e-6
         # Grad norm may vary slightly due to non-deterministic backward pass
-        assert abs(stats1.grad_norm - stats2.grad_norm) / max(stats1.grad_norm, 1e-8) < 0.2
+        assert abs(stats1.training.gradient_noise_scale - stats2.training.gradient_noise_scale) / max(stats1.training.gradient_noise_scale, 1e-8) < 0.2
 
 
 class TestAugmentationSweep:
@@ -203,10 +204,10 @@ class TestAugmentationSweep:
                     seed=42,
                     intensity=intensity,
                 ))
-                delta = stats.loss - base_stats.loss
-                print(f"{aug_type.value:<20} {intensity:<12.4f} {stats.loss:<12.4f} {delta:<+12.4f} {stats.grad_norm:<12.4f}")
+                delta = stats.training.init_loss - base_stats.training.init_loss
+                print(f"{aug_type.value:<20} {intensity:<12.4f} {stats.training.init_loss:<12.4f} {delta:<+12.4f} {stats.training.gradient_noise_scale:<12.4f}")
 
-        print(f"\nBase: loss={base_stats.loss:.4f}, grad_norm={base_stats.grad_norm:.4f}")
+        print(f"\nBase: loss={base_stats.training.init_loss:.4f}, grad_norm={base_stats.training.gradient_noise_scale:.4f}")
 
     def test_scope_sweep(self, model_and_tokenizer):
         """Show impact of different scopes for each augmentation type."""
@@ -235,10 +236,10 @@ class TestAugmentationSweep:
                     seed=42,
                     intensity=intensity,
                 ))
-                delta = stats.loss - base_stats.loss
-                print(f"{aug_type.value:<20} {scope.value:<20} {stats.loss:<12.4f} {delta:<+12.4f} {stats.grad_norm:<12.4f}")
+                delta = stats.training.init_loss - base_stats.training.init_loss
+                print(f"{aug_type.value:<20} {scope.value:<20} {stats.training.init_loss:<12.4f} {delta:<+12.4f} {stats.training.gradient_noise_scale:<12.4f}")
 
-        print(f"\nBase: loss={base_stats.loss:.4f}, grad_norm={base_stats.grad_norm:.4f}")
+        print(f"\nBase: loss={base_stats.training.init_loss:.4f}, grad_norm={base_stats.training.gradient_noise_scale:.4f}")
 
 
 if __name__ == "__main__":

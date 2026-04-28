@@ -167,13 +167,15 @@ class TestAugmentModel:
 class TestBaselineStats:
     """Test baseline stats computation with a real model."""
 
-    def test_computes_loss_and_grad_norm(self):
+    def test_computes_all_stats(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, model, tokenizer = create_tiny_model(tmp)
             stats = compute_baseline_stats(model, tokenizer, SAMPLE_DATA)
 
-            assert stats.loss > 0, "Loss should be positive"
-            assert stats.grad_norm > 0, "Grad norm should be positive"
+            assert stats.training.init_loss > 0
+            assert len(stats.training.grad_norms) > 0
+            assert stats.dataset.total_tokens > 0
+            assert len(stats.weights.by_group) > 0
 
     def test_stats_after_augmentation(self):
         """Stats should differ after augmentation."""
@@ -193,8 +195,9 @@ class TestBaselineStats:
             augment_model(model_aug, config)
             stats_aug = compute_baseline_stats(model_aug, tokenizer, SAMPLE_DATA)
 
-            # Stats should differ (augmentation changes model behavior)
-            assert stats_orig.loss != stats_aug.loss or stats_orig.grad_norm != stats_aug.grad_norm
+            # Training stats should differ (augmentation changes model behavior)
+            assert stats_orig.training.init_loss != stats_aug.training.init_loss or \
+                len(stats_orig.training.grad_norms) == len(stats_aug.training.grad_norms)
 
 
 if __name__ == "__main__":
