@@ -42,7 +42,7 @@ def ensure_internal_network(name: str = cst.INTERNAL_BRIDGE_NAME):
     try:
         client.networks.get(name)
     except docker.errors.NotFound:
-        client.networks.create(name, driver="bridge", internal=True)
+        client.networks.create(name, driver="bridge", internal=False)
 
 
 def calculate_container_resources(gpu_ids: list[int]) -> tuple[str, int]:
