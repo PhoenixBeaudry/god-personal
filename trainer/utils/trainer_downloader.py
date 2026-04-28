@@ -206,12 +206,13 @@ async def main():
     elif args.task_type == TaskType.ENVIRONMENTTASK.value:
         model_path = await download_axolotl_base_model(args.model, model_dir)
         input_data_path = train_paths.get_text_dataset_path(args.task_id)
-        write_environment_task_proxy_dataset(
-            out_path=input_data_path,
-            dataset_size=1000,
-            prompt_text="Interact with this environment.",
-            prompt_field="prompt",
-        )
+        dataset_path, _ = await download_text_dataset(args.task_id, args.dataset, args.file_format, dataset_dir)
+        # write_environment_task_proxy_dataset(
+        #     out_path=input_data_path,
+        #     dataset_size=1000,
+        #     prompt_text="Interact with this environment.",
+        #     prompt_field="prompt",
+        # )
     else:
         dataset_path, _ = await download_text_dataset(args.task_id, args.dataset, args.file_format, dataset_dir)
         model_path = await download_axolotl_base_model(args.model, model_dir)
