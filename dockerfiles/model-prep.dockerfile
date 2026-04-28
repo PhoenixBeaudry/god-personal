@@ -2,7 +2,7 @@ FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir safetensors huggingface_hub numpy requests pydantic transformers
+RUN pip install --no-cache-dir safetensors huggingface_hub numpy requests pydantic transformers datasketch
 
 COPY trainer/model_prep/ trainer/model_prep/
 COPY core/ core/

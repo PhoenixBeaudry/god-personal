@@ -107,10 +107,20 @@ def main():
     hf_token = os.environ.get("HUGGINGFACE_TOKEN", "")
 
     print(f"Loading model: {args.model}", flush=True)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16, token=hf_token)
+    n_gpus = torch.cuda.device_count()
+    if n_gpus > 1:
+        print(f"Multi-GPU detected ({n_gpus}), using device_map=auto", flush=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model, torch_dtype=torch.float16, token=hf_token, device_map="auto",
+        )
+    elif torch.cuda.is_available():
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model, torch_dtype=torch.float16, token=hf_token,
+        )
+        model.to("cuda")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(args.model, token=hf_token)
-    model.to(device)
 
     augmented_model_id = None
 
