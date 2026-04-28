@@ -116,6 +116,7 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
             logger.info(f"THE TASK HAS BEEN PREPPED {task}")
 
             # Model prep: augmentation + baseline stats (runs on trainer GPU)
+            reward_fns = getattr(task, "reward_functions", None)
             prep_result = await dispatch_model_prep(
                 model_id=task.model_id,
                 training_data_url=task.training_data,
@@ -123,6 +124,7 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
                 model_params_count=task.model_params_count,
                 task_type=task.task_type,
                 config=config,
+                reward_functions=reward_fns,
             )
             if prep_result is not None:
                 if prep_result.augmented_model_id:

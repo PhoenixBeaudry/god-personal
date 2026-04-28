@@ -29,6 +29,7 @@ async def dispatch_model_prep(
     model_params_count: int,
     task_type,
     config: Config,
+    reward_functions=None,
 ) -> ModelPrepResponse | None:
     """Dispatch model prep to a trainer with GPU and wait for results.
 
@@ -49,11 +50,14 @@ async def dispatch_model_prep(
     else:
         trainer_ip_with_port = trainer_ip
 
+    task_type_str = task_type.value if hasattr(task_type, "value") else str(task_type)
     request = ModelPrepRequest(
         model_id=model_id,
         training_data_url=training_data_url,
+        task_type=task_type_str,
         augmentation_config=augmentation_config,
         gpu_ids=gpu_ids,
+        reward_functions=reward_functions,
     )
 
     url = f"http://{trainer_ip_with_port}{MODEL_PREP_ENDPOINT}"

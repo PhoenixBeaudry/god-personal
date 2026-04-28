@@ -136,8 +136,10 @@ class JobStatusResponse(BaseModel):
 class ModelPrepRequest(BaseModel):
     model_id: str
     training_data_url: str
+    task_type: str = "instruct"
     augmentation_config: AugmentationConfig | None = None
     gpu_ids: list[int] = [0]
+    reward_functions: list[RewardFunction] | None = None
 
     model_config = ConfigDict(protected_namespaces=())
 

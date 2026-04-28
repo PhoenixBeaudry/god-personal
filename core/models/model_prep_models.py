@@ -1,10 +1,13 @@
 """
 Pydantic models for model prep: augmentation config and baseline stats.
+Per-type stats models for instruct, DPO, GRPO tasks.
 """
 
 from enum import Enum
+from typing import Union
 
 from pydantic import BaseModel
+from pydantic import Field
 
 
 # --- Augmentation models ---
@@ -30,7 +33,7 @@ class AugmentationConfig(BaseModel):
     intensity: float
 
 
-# --- Stats models ---
+# --- Shared stats building blocks ---
 
 class SeqLengthDistribution(BaseModel):
     mean: float
@@ -38,14 +41,6 @@ class SeqLengthDistribution(BaseModel):
     p95: int
     p99: int
     max: int
-
-
-class DatasetStats(BaseModel):
-    total_tokens: int
-    seq_length_distribution: SeqLengthDistribution
-    near_duplicate_rate: float
-    bits_per_byte: float
-    vocab_size: int
 
 
 class LayerGroupWeightStats(BaseModel):
@@ -65,7 +60,39 @@ class LayerGradStats(BaseModel):
     top_singular_values: list[float]
 
 
-class TrainingDynamics(BaseModel):
+# --- Per-type dataset stats ---
+
+class DatasetStatsBase(BaseModel):
+    total_tokens: int
+    seq_length_distribution: SeqLengthDistribution
+    near_duplicate_rate: float
+    bits_per_byte: float
+    vocab_size: int
+
+
+class InstructDatasetStats(DatasetStatsBase):
+    prompt_tokens: int
+    completion_tokens: int
+    completion_length_distribution: SeqLengthDistribution
+
+
+class DpoDatasetStats(DatasetStatsBase):
+    prompt_tokens: int
+    chosen_tokens: int
+    rejected_tokens: int
+    chosen_length_distribution: SeqLengthDistribution
+    rejected_length_distribution: SeqLengthDistribution
+    chosen_rejected_length_ratio: float
+
+
+class GrpoDatasetStats(DatasetStatsBase):
+    prompt_tokens: int
+    prompt_length_distribution: SeqLengthDistribution
+
+
+# --- Per-type training dynamics ---
+
+class TrainingDynamicsBase(BaseModel):
     init_loss: float
     grad_norms: dict[str, float]
     gradient_noise_scale: float
@@ -74,7 +101,41 @@ class TrainingDynamics(BaseModel):
     output_entropy: float
 
 
-class BaselineStats(BaseModel):
-    dataset: DatasetStats
+class InstructTrainingDynamics(TrainingDynamicsBase):
+    masked_completion_loss: float
+
+
+class DpoTrainingDynamics(TrainingDynamicsBase):
+    ref_log_prob_chosen: float
+    ref_log_prob_rejected: float
+    implicit_reward_gap: float
+
+
+class GrpoTrainingDynamics(TrainingDynamicsBase):
+    baseline_reward_scores: dict[str, float]
+
+
+# --- Per-type baseline stats ---
+
+class InstructBaselineStats(BaseModel):
+    task_type: str = "instruct"
+    dataset: InstructDatasetStats
     weights: WeightStats
-    training: TrainingDynamics
+    training: InstructTrainingDynamics
+
+
+class DpoBaselineStats(BaseModel):
+    task_type: str = "dpo"
+    dataset: DpoDatasetStats
+    weights: WeightStats
+    training: DpoTrainingDynamics
+
+
+class GrpoBaselineStats(BaseModel):
+    task_type: str = "grpo"
+    dataset: GrpoDatasetStats
+    weights: WeightStats
+    training: GrpoTrainingDynamics
+
+
+BaselineStats = Union[InstructBaselineStats, DpoBaselineStats, GrpoBaselineStats]

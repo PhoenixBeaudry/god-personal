@@ -27,10 +27,12 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, help="HuggingFace model ID")
     parser.add_argument("--training-data", required=True, help="S3 URL or local path to training data")
+    parser.add_argument("--task-type", default="instruct", help="Task type: instruct, dpo, grpo, chat")
     parser.add_argument("--aug-type", choices=[t.value for t in AugmentationType], default=None)
     parser.add_argument("--scope", choices=[s.value for s in AugmentationScope], default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--intensity", type=float, default=None)
+    parser.add_argument("--reward-functions", default=None, help="JSON list of reward function objects (for GRPO)")
     return parser.parse_args()
 
 
@@ -139,8 +141,17 @@ def main():
     print("Computing baseline stats...", flush=True)
     data_records = load_training_data(args.training_data)
 
+    # Parse reward functions for GRPO
+    reward_functions = None
+    if args.reward_functions:
+        reward_functions = json.loads(args.reward_functions)
+
     if data_records and tokenizer is not None:
-        stats = compute_baseline_stats(model, tokenizer, data_records)
+        stats = compute_baseline_stats(
+            model, tokenizer, data_records,
+            task_type=args.task_type,
+            reward_functions=reward_functions,
+        )
     else:
         print("Warning: no training data available for stats", flush=True)
         stats = None

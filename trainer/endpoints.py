@@ -135,8 +135,10 @@ async def model_prep(req: ModelPrepRequest) -> ModelPrepResponse:
         run_model_prep_container,
         model_id=req.model_id,
         training_data_url=req.training_data_url,
+        task_type=req.task_type,
         augmentation_config=req.augmentation_config,
         gpu_ids=req.gpu_ids,
+        reward_functions=req.reward_functions,
     )
     return result
 

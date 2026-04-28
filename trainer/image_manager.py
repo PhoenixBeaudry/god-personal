@@ -416,8 +416,10 @@ def run_downloader_container(
 def run_model_prep_container(
     model_id: str,
     training_data_url: str,
+    task_type: str = "instruct",
     augmentation_config=None,
     gpu_ids: list[int] = [0],
+    reward_functions=None,
     log_labels: dict[str, str] | None = None,
 ) -> ModelPrepResponse:
     """Run model prep container: augment model (if config set) + compute baseline stats."""
@@ -426,6 +428,7 @@ def run_model_prep_container(
     command = [
         "--model", model_id,
         "--training-data", training_data_url,
+        "--task-type", task_type,
     ]
 
     if augmentation_config is not None:
@@ -435,6 +438,10 @@ def run_model_prep_container(
             "--seed", str(augmentation_config.seed),
             "--intensity", str(augmentation_config.intensity),
         ]
+
+    if reward_functions:
+        import json as _json
+        command += ["--reward-functions", _json.dumps([rf.model_dump() if hasattr(rf, "model_dump") else rf for rf in reward_functions])]
 
     env = {
         "HUGGINGFACE_TOKEN": os.environ.get("HUGGINGFACE_TOKEN", ""),
