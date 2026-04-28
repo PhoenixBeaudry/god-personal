@@ -139,9 +139,10 @@ def create_config(task_id, model, dataset, dataset_type, file_format, output_dir
             f"SWE environment task: switching to SFT on local {train_cst.SWE_TRAJECTORIES_LOCAL_DIR}",
             flush=True,
         )
-        # Parse the JSON-string messages into proper chat_template-shaped rows and emit JSONL,
-        # then point axolotl at that file (the JSON path-rewriting block below sets data_files).
-        dataset = prepare_swe_trajectories_jsonl(train_cst.AXOLOTL_DIRECTORIES["data"])
+        # Parse the JSON-string messages into proper chat_template-shaped rows and emit JSONL.
+        # axolotl's JSON loader resolves `data_files` (basenames) relative to cwd, which is
+        # AXOLOTL_DIRECTORIES["root"] (set as WORKDIR), so write the file there.
+        dataset = prepare_swe_trajectories_jsonl(train_cst.AXOLOTL_DIRECTORIES["root"])
         file_format = FileFormat.JSON.value
         dataset_type = ChatTemplateDatasetType(
             chat_template="chatml",
