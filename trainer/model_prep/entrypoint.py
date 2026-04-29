@@ -88,8 +88,8 @@ def upload_augmented_model(model, tokenizer, repo_id: str, hf_token: str) -> Non
     print(f"Uploading augmented model to {repo_id}")
 
     model.config._name_or_path = repo_id
-    model.push_to_hub(repo_id, token=hf_token, private=True)
-    tokenizer.push_to_hub(repo_id, token=hf_token, private=True)
+    model.push_to_hub(repo_id, token=hf_token, private=False)
+    tokenizer.push_to_hub(repo_id, token=hf_token, private=False)
 
     # Scrub _name_or_path from config
     api = HfApi(token=hf_token)
