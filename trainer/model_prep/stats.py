@@ -279,8 +279,10 @@ def _compute_base_training_dynamics(
         if not list(module.children()) and any(p.requires_grad for p in module.parameters(recurse=False)):
             hooks.append(module.register_forward_hook(make_hook(name)))
 
-    # Forward+backward for grads
+    # Forward+backward for grads (with gradient checkpointing for large models)
     model.train()
+    if hasattr(model, "gradient_checkpointing_enable"):
+        model.gradient_checkpointing_enable()
     model.zero_grad()
     batch = next(iter(loader))
     outputs = model(
@@ -319,6 +321,8 @@ def _compute_base_training_dynamics(
     activation_rms = {n: float(np.mean(v)) for n, v in activation_rms_accum.items()}
     noise_scale = _compute_gradient_noise_scale(model, loader, device, n_subbatches)
 
+    if hasattr(model, "gradient_checkpointing_disable"):
+        model.gradient_checkpointing_disable()
     model.eval()
     model.zero_grad()
 

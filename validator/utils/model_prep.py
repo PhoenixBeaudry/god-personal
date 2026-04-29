@@ -38,8 +38,8 @@ async def dispatch_model_prep(
     Returns ModelPrepResponse with augmented_model_id and baseline_stats,
     or None if no trainer is available.
     """
-    required_gpus = get_tournament_gpu_requirement(task_type, model_params_count, model_id)
-    suitable = await _check_suitable_gpus(config, required_gpus)
+    # Model prep is inference-only — 1 GPU is enough for any model up to ~70B
+    suitable = await _check_suitable_gpus(config, GpuRequirement.H100_1X)
 
     if suitable is None:
         logger.warning(f"No suitable GPUs for model prep of {model_id}, skipping")

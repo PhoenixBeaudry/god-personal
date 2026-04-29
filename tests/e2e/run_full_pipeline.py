@@ -117,6 +117,13 @@ async def _prep_and_verify(task, config, task_type_label: str) -> dict:
         if prep_result is None:
             return {"name": name, "status": "FAIL", "error": "dispatch returned None (no GPUs?)", "elapsed": elapsed}
 
+        # Step 2b: Save results to DB
+        if prep_result.augmented_model_id:
+            task.augmented_model_id = prep_result.augmented_model_id
+        if prep_result.baseline_stats:
+            task.baseline_stats = prep_result.baseline_stats
+        await task_sql.update_task(task, config.psql_db)
+
         # Step 3: Verify results
         errors = []
         stats = prep_result.baseline_stats
