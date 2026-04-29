@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from core.models.utility_models import TaskType
 from core.models.model_prep_models import (
     BaselineStats,
     DatasetStatsBase,
@@ -557,20 +558,20 @@ def compute_text_stats(
     model,
     tokenizer,
     data_records: list[dict],
-    task_type: str = "instruct",
+    task_type: TaskType = TaskType.INSTRUCTTEXTTASK,
     max_samples: int = 100,
     reward_functions=None,
 ) -> BaselineStats:
     """Compute stats for text-based tasks (instruct, DPO, GRPO, chat)."""
     device = str(_get_model_device(model))
 
-    if task_type == "chat":
+    if task_type == TaskType.CHATTASK:
         print("Computing chat stats...", flush=True)
         return _compute_instruct_stats(model, tokenizer, data_records, device, max_samples, text_extractor=_extract_chat_texts)
-    elif task_type == "dpo":
+    elif task_type == TaskType.DPOTASK:
         print("Computing DPO stats...", flush=True)
         return _compute_dpo_stats(model, tokenizer, data_records, device, max_samples)
-    elif task_type == "grpo":
+    elif task_type == TaskType.GRPOTASK:
         print("Computing GRPO stats...", flush=True)
         return _compute_grpo_stats(model, tokenizer, data_records, device, max_samples, reward_functions)
     else:

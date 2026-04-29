@@ -20,6 +20,7 @@ from transformers import AutoTokenizer
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
+from core.models.utility_models import TaskType
 from trainer.model_prep.augmentation import augment_model
 from trainer.model_prep.env_stats import compute_env_stats
 from trainer.model_prep.stats import compute_text_stats
@@ -166,9 +167,10 @@ def main():
         reward_functions = json.loads(args.reward_functions) if args.reward_functions else None
 
         if data_records and tokenizer is not None:
+            task_type_enum = TaskType(args.task_type)
             stats = compute_text_stats(
                 model, tokenizer, data_records,
-                task_type=args.task_type,
+                task_type=task_type_enum,
                 reward_functions=reward_functions,
             )
         else:
