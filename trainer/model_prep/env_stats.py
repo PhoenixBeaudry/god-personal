@@ -173,7 +173,8 @@ async def compute_env_stats(
                 scores.append(score)
                 print(f"Episode {i+1}/{num_episodes}: score={score:.3f}", flush=True)
 
-        print(f"Done: {len(scores)} episodes, mean={statistics.mean(scores):.3f}", flush=True)
+        mean = statistics.mean(scores) if scores else 0.0
+        print(f"Done: {len(scores)} episodes, mean={mean:.3f}", flush=True)
 
         return EnvBaselineStats(
             weights=weight_stats,

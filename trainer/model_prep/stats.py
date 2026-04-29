@@ -222,17 +222,21 @@ def _compute_bits_per_byte(texts: list[str], device: str = "cpu") -> float:
 
 
 def compute_weight_stats(model) -> WeightStats:
-    group_tensors: dict[str, list[torch.Tensor]] = defaultdict(list)
-    for name, param in model.named_parameters():
-        group_tensors[classify_layer(name)].append(param.data.float())
+    group_names: dict[str, list[str]] = defaultdict(list)
+    for name, _ in model.named_parameters():
+        group_names[classify_layer(name)].append(name)
     by_group = {}
-    for group, tensors in group_tensors.items():
-        all_w = torch.cat([t.flatten() for t in tensors])
+    for group, names in group_names.items():
+        all_w = torch.cat([
+            model.get_parameter(n).data.flatten().float().cpu()
+            for n in names
+        ])
         by_group[group] = LayerGroupWeightStats(
             weight_rms=float(torch.sqrt(torch.mean(all_w ** 2)).item()),
             weight_norm=float(torch.norm(all_w).item()),
             max_abs=float(torch.max(torch.abs(all_w)).item()),
         )
+        del all_w
     return WeightStats(by_group=by_group)
 
 
