@@ -253,8 +253,11 @@ def _compute_base_training_dynamics(
             attention_mask = batch["attention_mask"].to(device)
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
             total_loss += outputs.loss.item()
-            probs = F.softmax(outputs.logits, dim=-1)
-            total_entropy += -(probs * torch.log(probs + 1e-10)).sum(dim=-1).mean().item()
+            logits_f32 = outputs.logits.float()
+            probs = F.softmax(logits_f32, dim=-1)
+            entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1).mean().item()
+            if not math.isnan(entropy) and not math.isinf(entropy):
+                total_entropy += entropy
             n_batches += 1
 
     init_loss = total_loss / max(n_batches, 1)
@@ -324,7 +327,7 @@ def _compute_base_training_dynamics(
         "gradient_noise_scale": noise_scale,
         "activation_rms": activation_rms,
         "grad_stats": grad_stats,
-        "output_entropy": output_entropy,
+        "output_entropy": output_entropy if not math.isnan(output_entropy) else 0.0,
     }
 
 
