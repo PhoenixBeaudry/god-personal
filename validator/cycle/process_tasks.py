@@ -121,6 +121,7 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
             env_name = getattr(task, "environment_name", None)
             env_config = ENVIRONMENTS.get(env_name) if env_name else None
             prep_result = await dispatch_model_prep(
+                task_id=str(task.task_id),
                 model_id=task.model_id,
                 training_data_url=task.training_data,
                 augmentation_config=task.augmentation_config,

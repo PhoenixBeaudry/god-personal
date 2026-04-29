@@ -134,6 +134,7 @@ class JobStatusResponse(BaseModel):
 
 
 class ModelPrepRequest(BaseModel):
+    task_id: str
     model_id: str
     training_data_url: str
     task_type: str = "instruct"

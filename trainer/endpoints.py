@@ -133,6 +133,7 @@ async def model_prep(req: ModelPrepRequest) -> ModelPrepResponse:
         )
     result = await asyncio.to_thread(
         run_model_prep_container,
+        task_id=req.task_id,
         model_id=req.model_id,
         training_data_url=req.training_data_url,
         task_type=req.task_type,

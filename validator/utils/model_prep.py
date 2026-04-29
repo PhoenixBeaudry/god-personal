@@ -23,6 +23,7 @@ MODEL_PREP_TIMEOUT_SECONDS = 600
 
 
 async def dispatch_model_prep(
+    task_id: str,
     model_id: str,
     training_data_url: str,
     augmentation_config: AugmentationConfig | None,
@@ -54,6 +55,7 @@ async def dispatch_model_prep(
 
     task_type_str = task_type.value if hasattr(task_type, "value") else str(task_type)
     request = ModelPrepRequest(
+        task_id=task_id,
         model_id=model_id,
         training_data_url=training_data_url,
         task_type=task_type_str,

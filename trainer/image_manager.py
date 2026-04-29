@@ -414,6 +414,7 @@ def run_downloader_container(
 
 
 def run_model_prep_container(
+    task_id: str,
     model_id: str,
     training_data_url: str,
     task_type: str = "instruct",
@@ -428,10 +429,25 @@ def run_model_prep_container(
     env_payload_extra: dict | None = None,
     log_labels: dict[str, str] | None = None,
 ) -> ModelPrepResponse:
-    """Run model prep container: augment model (if config set) + compute baseline stats.
-    For env tasks, starts an env server sidecar and plays episodes."""
+    """Run model prep container: augment model + compute baseline stats.
+    Downloads model to cache via downloader first. For env tasks, starts env server sidecar."""
     client = docker.from_env()
     env_server_container = None
+
+    # Download model to cache volume
+    download_exit, download_err = run_downloader_container(
+        task_id=task_id,
+        model=model_id,
+        dataset_url=training_data_url,
+        task_type=task_type,
+        hotkey="",
+        log_labels=log_labels,
+    )
+    if download_exit != 0:
+        raise RuntimeError(f"Downloader failed: {download_err}")
+
+    anonymous_model = get_anonymous_model_dir(model_id)
+    model_cache_path = f"/cache/models/{anonymous_model}"
 
     # For env tasks, start env server sidecar
     if environment_name and not env_server_url:
@@ -453,7 +469,7 @@ def run_model_prep_container(
         loop.close()
 
     command = [
-        "--model", model_id,
+        "--model", model_cache_path,
         "--training-data", training_data_url,
         "--task-type", task_type,
     ]
