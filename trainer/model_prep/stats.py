@@ -337,12 +337,19 @@ def _compute_base_training_dynamics(
 
 
 def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> float:
+    """Gradient noise scale via streaming Welford accumulation per parameter.
+    Mathematically identical to torch.stack(all_grads).var(dim=0).sum() / mean_norm²
+    but only stores running sum + sum_sq per parameter, never the full flat tensor."""
     all_batches = list(loader)
     if len(all_batches) < n_subbatches:
         return 0.0
     chunk_size = len(all_batches) // n_subbatches
-    subbatch_grads = []
-    for i in range(n_subbatches):
+    n = n_subbatches
+
+    grad_sum: dict[str, torch.Tensor] = {}
+    grad_sum_sq: dict[str, torch.Tensor] = {}
+
+    for i in range(n):
         chunk = all_batches[i * chunk_size:(i + 1) * chunk_size]
         model.zero_grad()
         total_loss = 0.0
@@ -354,13 +361,31 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
             )
             total_loss += outputs.loss
         (total_loss / len(chunk)).backward()
-        flat_grad = torch.cat([p.grad.flatten() for p in model.parameters() if p.grad is not None])
-        subbatch_grads.append(flat_grad.detach())
-    grad_stack = torch.stack(subbatch_grads)
-    mean_norm_sq = grad_stack.mean(dim=0).norm(2).item() ** 2
-    if mean_norm_sq < 1e-12:
+
+        for name, param in model.named_parameters():
+            if param.grad is None:
+                continue
+            g = param.grad.detach().float()
+            if name not in grad_sum:
+                grad_sum[name] = torch.zeros_like(g)
+                grad_sum_sq[name] = torch.zeros_like(g)
+            grad_sum[name] += g
+            grad_sum_sq[name] += g ** 2
+
+    total_var = 0.0
+    total_mean_norm_sq = 0.0
+    for name in grad_sum:
+        mean = grad_sum[name] / n
+        # Bessel's correction (n-1) to match torch.var(dim=0)
+        var = (grad_sum_sq[name] - grad_sum[name] ** 2 / n) / (n - 1)
+        total_var += var.sum().item()
+        total_mean_norm_sq += mean.norm(2).item() ** 2
+
+    del grad_sum, grad_sum_sq
+
+    if total_mean_norm_sq < 1e-12:
         return 0.0
-    return grad_stack.var(dim=0).sum().item() / mean_norm_sq
+    return total_var / total_mean_norm_sq
 
 
 def _compute_masked_loss(model, tokenizer, prompt_texts: list[str], completion_texts: list[str], device, max_length: int = 512) -> float:
