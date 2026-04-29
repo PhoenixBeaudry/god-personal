@@ -204,6 +204,7 @@ async def main():
 
     print("Loading config...")
     config = load_config()
+    await config.psql_db.connect()
 
     # Create model/dataset generators
     models = _get_text_models(config.keypair)
