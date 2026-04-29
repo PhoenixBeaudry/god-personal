@@ -548,9 +548,9 @@ def _generate_completions(model, tokenizer, prompts: list[str], device, max_new_
     return completions
 
 
-# --- Main entry point ---
+# --- Main entry point for text tasks ---
 
-def compute_baseline_stats(
+def compute_text_stats(
     model,
     tokenizer,
     data_records: list[dict],
@@ -558,20 +558,18 @@ def compute_baseline_stats(
     max_samples: int = 100,
     reward_functions=None,
 ) -> BaselineStats:
+    """Compute stats for text-based tasks (instruct, DPO, GRPO, chat)."""
     device = str(_get_model_device(model))
 
     if task_type == "chat":
-        print(f"Computing chat stats...", flush=True)
+        print("Computing chat stats...", flush=True)
         return _compute_instruct_stats(model, tokenizer, data_records, device, max_samples, text_extractor=_extract_chat_texts)
-    elif task_type == "instruct":
-        print(f"Computing instruct stats...", flush=True)
-        return _compute_instruct_stats(model, tokenizer, data_records, device, max_samples)
     elif task_type == "dpo":
-        print(f"Computing DPO stats...", flush=True)
+        print("Computing DPO stats...", flush=True)
         return _compute_dpo_stats(model, tokenizer, data_records, device, max_samples)
     elif task_type == "grpo":
-        print(f"Computing GRPO stats...", flush=True)
+        print("Computing GRPO stats...", flush=True)
         return _compute_grpo_stats(model, tokenizer, data_records, device, max_samples, reward_functions)
     else:
-        print(f"Unknown task type '{task_type}', falling back to instruct stats", flush=True)
+        print(f"Computing instruct stats (task_type={task_type})...", flush=True)
         return _compute_instruct_stats(model, tokenizer, data_records, device, max_samples)

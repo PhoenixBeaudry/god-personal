@@ -138,4 +138,18 @@ class GrpoBaselineStats(BaseModel):
     training: GrpoTrainingDynamics
 
 
-BaselineStats = Union[InstructBaselineStats, DpoBaselineStats, GrpoBaselineStats]
+# --- Environment stats ---
+
+class EnvStats(BaseModel):
+    environment_name: str
+    num_episodes: int
+    episode_scores: list[float]
+
+
+class EnvBaselineStats(BaseModel):
+    task_type: str = "env"
+    weights: WeightStats
+    env_stats: EnvStats
+
+
+BaselineStats = Union[InstructBaselineStats, DpoBaselineStats, GrpoBaselineStats, EnvBaselineStats]

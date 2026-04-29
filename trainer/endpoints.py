@@ -139,6 +139,12 @@ async def model_prep(req: ModelPrepRequest) -> ModelPrepResponse:
         augmentation_config=req.augmentation_config,
         gpu_ids=req.gpu_ids,
         reward_functions=req.reward_functions,
+        environment_name=req.environment_name,
+        env_server_url=req.env_server_url,
+        num_episodes=req.num_episodes,
+        task_id_min=req.task_id_min,
+        task_id_max=req.task_id_max,
+        env_payload_extra=req.env_payload_extra,
     )
     return result
 

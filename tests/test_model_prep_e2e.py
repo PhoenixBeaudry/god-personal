@@ -15,7 +15,7 @@ from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
 from trainer.model_prep.augmentation import augment_model
-from trainer.model_prep.stats import compute_baseline_stats
+from trainer.model_prep.stats import compute_text_stats
 
 
 def create_tiny_model(tmp_dir: str) -> tuple[str, AutoModelForCausalLM, AutoTokenizer]:
@@ -170,7 +170,7 @@ class TestBaselineStats:
     def test_computes_all_stats(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, model, tokenizer = create_tiny_model(tmp)
-            stats = compute_baseline_stats(model, tokenizer, SAMPLE_DATA)
+            stats = compute_text_stats(model, tokenizer, SAMPLE_DATA)
 
             assert stats.training.init_loss > 0
             assert len(stats.training.grad_norms) > 0
@@ -183,7 +183,7 @@ class TestBaselineStats:
             path, _, tokenizer = create_tiny_model(tmp)
 
             model_orig = AutoModelForCausalLM.from_pretrained(path)
-            stats_orig = compute_baseline_stats(model_orig, tokenizer, SAMPLE_DATA)
+            stats_orig = compute_text_stats(model_orig, tokenizer, SAMPLE_DATA)
 
             model_aug = AutoModelForCausalLM.from_pretrained(path)
             config = AugmentationConfig(
@@ -193,7 +193,7 @@ class TestBaselineStats:
                 intensity=0.02,
             )
             augment_model(model_aug, config)
-            stats_aug = compute_baseline_stats(model_aug, tokenizer, SAMPLE_DATA)
+            stats_aug = compute_text_stats(model_aug, tokenizer, SAMPLE_DATA)
 
             # Training stats should differ (augmentation changes model behavior)
             assert stats_orig.training.init_loss != stats_aug.training.init_loss or \

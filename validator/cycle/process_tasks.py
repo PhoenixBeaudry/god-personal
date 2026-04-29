@@ -10,6 +10,7 @@ from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from validator.core.config import Config
 from validator.core.constants import EMISSION_BURN_HOTKEY
+from validator.core.constants import ENVIRONMENTS
 from validator.core.models import AnyTypeRawTask
 from validator.core.models import RawTask
 from validator.core.task_config_models import get_task_config
@@ -117,6 +118,8 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
 
             # Model prep: augmentation + baseline stats (runs on trainer GPU)
             reward_fns = getattr(task, "reward_functions", None)
+            env_name = getattr(task, "environment_name", None)
+            env_config = ENVIRONMENTS.get(env_name) if env_name else None
             prep_result = await dispatch_model_prep(
                 model_id=task.model_id,
                 training_data_url=task.training_data,
@@ -125,6 +128,8 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
                 task_type=task.task_type,
                 config=config,
                 reward_functions=reward_fns,
+                environment_name=env_name,
+                env_config=env_config,
             )
             if prep_result is not None:
                 if prep_result.augmented_model_id:

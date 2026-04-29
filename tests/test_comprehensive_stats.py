@@ -16,7 +16,7 @@ from core.models.model_prep_models import (
     BaselineStats,
 )
 from trainer.model_prep.augmentation import augment_model
-from trainer.model_prep.stats import compute_baseline_stats, classify_layer
+from trainer.model_prep.stats import compute_text_stats, classify_layer
 
 
 MODEL_ID = "distilgpt2"
@@ -40,7 +40,7 @@ def baseline_stats():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
-    return compute_baseline_stats(model, tokenizer, EVAL_DATA, max_samples=100)
+    return compute_text_stats(model, tokenizer, EVAL_DATA, max_samples=100)
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +54,7 @@ def augmented_stats():
         seed=42,
         intensity=0.05,
     ))
-    return compute_baseline_stats(model, tokenizer, EVAL_DATA, max_samples=100)
+    return compute_text_stats(model, tokenizer, EVAL_DATA, max_samples=100)
 
 
 class TestDatasetStats:

@@ -14,7 +14,7 @@ from core.models.model_prep_models import (
     GrpoBaselineStats,
     InstructBaselineStats,
 )
-from trainer.model_prep.stats import compute_baseline_stats
+from trainer.model_prep.stats import compute_text_stats
 
 
 MODEL_ID = "distilgpt2"
@@ -89,12 +89,12 @@ def chat_data():
 class TestInstructStats:
     def test_returns_correct_type(self, model_and_tokenizer, instruct_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
         assert isinstance(stats, InstructBaselineStats)
 
     def test_prompt_and_completion_tokens(self, model_and_tokenizer, instruct_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
         assert stats.dataset.prompt_tokens > 0
         assert stats.dataset.completion_tokens > 0
         assert stats.dataset.prompt_tokens != stats.dataset.completion_tokens
@@ -102,7 +102,7 @@ class TestInstructStats:
 
     def test_completion_length_distribution(self, model_and_tokenizer, instruct_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
         d = stats.dataset.completion_length_distribution
         assert d.mean > 0
         assert d.max >= d.p99 >= d.p95 >= d.p50
@@ -110,14 +110,14 @@ class TestInstructStats:
 
     def test_masked_loss_differs_from_init(self, model_and_tokenizer, instruct_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
         assert stats.training.masked_completion_loss > 0
         assert stats.training.masked_completion_loss != stats.training.init_loss
         print(f"Init loss: {stats.training.init_loss:.3f}, Masked loss: {stats.training.masked_completion_loss:.3f}")
 
     def test_all_fields_populated(self, model_and_tokenizer, instruct_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, instruct_data, task_type="instruct", max_samples=MAX_SAMPLES)
         assert stats.dataset.bits_per_byte > 0
         assert stats.dataset.vocab_size > 0
         assert len(stats.weights.by_group) > 0
@@ -128,12 +128,12 @@ class TestInstructStats:
 class TestDpoStats:
     def test_returns_correct_type(self, model_and_tokenizer, dpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
         assert isinstance(stats, DpoBaselineStats)
 
     def test_separate_token_counts(self, model_and_tokenizer, dpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
         assert stats.dataset.prompt_tokens > 0
         assert stats.dataset.chosen_tokens > 0
         assert stats.dataset.rejected_tokens > 0
@@ -141,20 +141,20 @@ class TestDpoStats:
 
     def test_chosen_rejected_distributions(self, model_and_tokenizer, dpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
         assert stats.dataset.chosen_length_distribution.mean > 0
         assert stats.dataset.rejected_length_distribution.mean > 0
         print(f"Chosen mean: {stats.dataset.chosen_length_distribution.mean:.1f}, Rejected mean: {stats.dataset.rejected_length_distribution.mean:.1f}")
 
     def test_length_ratio(self, model_and_tokenizer, dpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
         assert stats.dataset.chosen_rejected_length_ratio > 0
         print(f"Chosen/Rejected length ratio: {stats.dataset.chosen_rejected_length_ratio:.3f}")
 
     def test_log_probs_and_reward_gap(self, model_and_tokenizer, dpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
         assert isinstance(stats.training.ref_log_prob_chosen, float)
         assert isinstance(stats.training.ref_log_prob_rejected, float)
         # Log probs should be negative
@@ -169,7 +169,7 @@ class TestDpoStats:
 
     def test_all_fields_populated(self, model_and_tokenizer, dpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, dpo_data, task_type="dpo", max_samples=MAX_SAMPLES)
         assert len(stats.weights.by_group) > 0
         assert len(stats.training.grad_norms) > 0
         assert stats.training.output_entropy > 0
@@ -178,12 +178,12 @@ class TestDpoStats:
 class TestGrpoStats:
     def test_returns_correct_type(self, model_and_tokenizer, grpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, grpo_data, task_type="grpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, grpo_data, task_type="grpo", max_samples=MAX_SAMPLES)
         assert isinstance(stats, GrpoBaselineStats)
 
     def test_prompt_tokens(self, model_and_tokenizer, grpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, grpo_data, task_type="grpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, grpo_data, task_type="grpo", max_samples=MAX_SAMPLES)
         assert stats.dataset.prompt_tokens > 0
         assert stats.dataset.prompt_length_distribution.mean > 0
         print(f"Prompt tokens: {stats.dataset.prompt_tokens}")
@@ -198,7 +198,7 @@ class TestGrpoStats:
         from core.models.utility_models import RewardFunction
         reward_fns = [RewardFunction(reward_func=reward_fn_code, reward_weight=1.0)]
 
-        stats = compute_baseline_stats(
+        stats = compute_text_stats(
             model, tok, grpo_data, task_type="grpo",
             max_samples=MAX_SAMPLES, reward_functions=reward_fns,
         )
@@ -221,7 +221,7 @@ class TestGrpoStats:
             RewardFunction(reward_func=fn2, reward_weight=0.5),
         ]
 
-        stats = compute_baseline_stats(
+        stats = compute_text_stats(
             model, tok, grpo_data, task_type="grpo",
             max_samples=MAX_SAMPLES, reward_functions=reward_fns,
         )
@@ -233,7 +233,7 @@ class TestGrpoStats:
 
     def test_all_fields_populated(self, model_and_tokenizer, grpo_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, grpo_data, task_type="grpo", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, grpo_data, task_type="grpo", max_samples=MAX_SAMPLES)
         assert len(stats.weights.by_group) > 0
         assert len(stats.training.grad_norms) > 0
         assert stats.training.output_entropy > 0
@@ -243,12 +243,12 @@ class TestChatStats:
     def test_returns_instruct_type(self, model_and_tokenizer, chat_data):
         """Chat uses InstructBaselineStats (same as instruct)."""
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, chat_data, task_type="chat", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, chat_data, task_type="chat", max_samples=MAX_SAMPLES)
         assert isinstance(stats, InstructBaselineStats)
 
     def test_prompt_completion_from_turns(self, model_and_tokenizer, chat_data):
         model, tok = model_and_tokenizer
-        stats = compute_baseline_stats(model, tok, chat_data, task_type="chat", max_samples=MAX_SAMPLES)
+        stats = compute_text_stats(model, tok, chat_data, task_type="chat", max_samples=MAX_SAMPLES)
         assert stats.dataset.prompt_tokens > 0
         assert stats.dataset.completion_tokens > 0
         print(f"User (prompt) tokens: {stats.dataset.prompt_tokens}")

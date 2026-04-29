@@ -11,7 +11,7 @@ from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
 from trainer.model_prep.augmentation import augment_model
-from trainer.model_prep.stats import compute_baseline_stats
+from trainer.model_prep.stats import compute_text_stats
 
 
 REAL_MODEL_ID = "distilgpt2"
@@ -42,7 +42,7 @@ class TestBaselineVsAugmented:
         model = AutoModelForCausalLM.from_pretrained(model_id)
         if aug_config is not None:
             augment_model(model, aug_config)
-        return compute_baseline_stats(model, tokenizer, EVAL_DATA)
+        return compute_text_stats(model, tokenizer, EVAL_DATA)
 
     def test_base_model_produces_valid_stats(self, model_and_tokenizer):
         model_id, tokenizer = model_and_tokenizer
@@ -174,7 +174,7 @@ class TestAugmentationSweep:
         model = AutoModelForCausalLM.from_pretrained(model_id)
         if aug_config is not None:
             augment_model(model, aug_config)
-        return compute_baseline_stats(model, tokenizer, EVAL_DATA)
+        return compute_text_stats(model, tokenizer, EVAL_DATA)
 
     def test_intensity_sweep(self, model_and_tokenizer):
         """Higher intensity should mean bigger loss delta."""

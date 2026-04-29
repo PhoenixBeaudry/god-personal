@@ -30,6 +30,8 @@ async def dispatch_model_prep(
     task_type,
     config: Config,
     reward_functions=None,
+    environment_name: str | None = None,
+    env_config: dict | None = None,
 ) -> ModelPrepResponse | None:
     """Dispatch model prep to a trainer with GPU and wait for results.
 
@@ -58,6 +60,10 @@ async def dispatch_model_prep(
         augmentation_config=augmentation_config,
         gpu_ids=gpu_ids,
         reward_functions=reward_functions,
+        environment_name=environment_name,
+        task_id_min=env_config.get("task_id_range", [0, 0])[0] if env_config else None,
+        task_id_max=env_config.get("task_id_range", [0, 0])[1] if env_config else None,
+        env_payload_extra=env_config.get("eval_payload_extra") if env_config else None,
     )
 
     url = f"http://{trainer_ip_with_port}{MODEL_PREP_ENDPOINT}"

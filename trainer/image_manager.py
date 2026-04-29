@@ -420,10 +420,37 @@ def run_model_prep_container(
     augmentation_config=None,
     gpu_ids: list[int] = [0],
     reward_functions=None,
+    environment_name: str | None = None,
+    env_server_url: str | None = None,
+    num_episodes: int = 50,
+    task_id_min: int | None = None,
+    task_id_max: int | None = None,
+    env_payload_extra: dict | None = None,
     log_labels: dict[str, str] | None = None,
 ) -> ModelPrepResponse:
-    """Run model prep container: augment model (if config set) + compute baseline stats."""
+    """Run model prep container: augment model (if config set) + compute baseline stats.
+    For env tasks, starts an env server sidecar and plays episodes."""
     client = docker.from_env()
+    env_server_container = None
+
+    # For env tasks, start env server sidecar
+    if environment_name and not env_server_url:
+        ensure_internal_network()
+        loop = asyncio.new_event_loop()
+        env_server_container = loop.run_until_complete(
+            run_environment_server_container(environment_name, log_labels or {})
+        )
+        if env_server_container:
+            loop.run_until_complete(asyncio.sleep(2))
+            env_server_container.reload()
+            networks = env_server_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            if cst.INTERNAL_BRIDGE_NAME in networks:
+                env_ip = networks[cst.INTERNAL_BRIDGE_NAME].get("IPAddress")
+            else:
+                env_ip = env_server_container.attrs.get("NetworkSettings", {}).get("IPAddress")
+            env_server_url = f"http://{env_ip}:8000"
+            logger.info(f"Env server sidecar started at {env_server_url}", extra=log_labels)
+        loop.close()
 
     command = [
         "--model", model_id,
@@ -440,8 +467,20 @@ def run_model_prep_container(
         ]
 
     if reward_functions:
-        import json as _json
-        command += ["--reward-functions", _json.dumps([rf.model_dump() if hasattr(rf, "model_dump") else rf for rf in reward_functions])]
+        command += ["--reward-functions", json.dumps([rf.model_dump() if hasattr(rf, "model_dump") else rf for rf in reward_functions])]
+
+    if environment_name and env_server_url:
+        command += [
+            "--environment-name", environment_name,
+            "--env-server-url", env_server_url,
+            "--num-episodes", str(num_episodes),
+        ]
+        if task_id_min is not None:
+            command += ["--task-id-min", str(task_id_min)]
+        if task_id_max is not None:
+            command += ["--task-id-max", str(task_id_max)]
+        if env_payload_extra:
+            command += ["--env-payload-extra", json.dumps(env_payload_extra)]
 
     env = {
         "HUGGINGFACE_TOKEN": os.environ.get("HUGGINGFACE_TOKEN", ""),
@@ -454,6 +493,7 @@ def run_model_prep_container(
 
     try:
         logger.info(f"Starting model prep container: {container_name}", extra=log_labels)
+        network = cst.INTERNAL_BRIDGE_NAME if environment_name else None
         container = client.containers.run(
             image=cst.MODEL_PREP_DOCKER_IMAGE,
             name=container_name,
@@ -467,6 +507,7 @@ def run_model_prep_container(
             )],
             mem_limit=memory_limit,
             nano_cpus=cpu_limit_nanocpus,
+            network=network,
             remove=False,
             detach=True,
         )
@@ -491,6 +532,13 @@ def run_model_prep_container(
                 container.remove(force=True)
             except Exception as cleanup_err:
                 logger.warning(f"Failed to remove container {container_name}: {cleanup_err}", extra=log_labels)
+        if env_server_container:
+            try:
+                env_server_container.stop()
+                env_server_container.remove(force=True)
+                logger.info("Env server sidecar cleaned up", extra=log_labels)
+            except Exception as env_cleanup_err:
+                logger.warning(f"Failed to cleanup env server: {env_cleanup_err}", extra=log_labels)
 
 
 async def run_environment_server_container(environment_name: str, log_labels: dict) -> Container:

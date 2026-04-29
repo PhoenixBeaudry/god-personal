@@ -140,6 +140,13 @@ class ModelPrepRequest(BaseModel):
     augmentation_config: AugmentationConfig | None = None
     gpu_ids: list[int] = [0]
     reward_functions: list[RewardFunction] | None = None
+    # Environment task fields
+    environment_name: str | None = None
+    env_server_url: str | None = None
+    num_episodes: int = 50
+    task_id_min: int | None = None
+    task_id_max: int | None = None
+    env_payload_extra: dict | None = None
 
     model_config = ConfigDict(protected_namespaces=())
 

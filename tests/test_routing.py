@@ -7,10 +7,10 @@ Run with: python -m pytest tests/test_routing.py -v -o addopts=
 import pytest
 
 from core.models.model_prep_models import (
-    BaselineStats,
-    DatasetStats,
+    InstructBaselineStats,
+    InstructDatasetStats,
+    InstructTrainingDynamics,
     SeqLengthDistribution,
-    TrainingDynamics,
     WeightStats,
     LayerGroupWeightStats,
     LayerGradStats,
@@ -21,26 +21,30 @@ from core.models.payload_models import TrainRequestText
 from core.models.payload_models import TrainRequestImage
 
 
-def _make_stats() -> BaselineStats:
-    """Build a minimal valid BaselineStats for test fixtures."""
-    return BaselineStats(
-        dataset=DatasetStats(
+def _make_stats() -> InstructBaselineStats:
+    """Build a minimal valid InstructBaselineStats for test fixtures."""
+    return InstructBaselineStats(
+        dataset=InstructDatasetStats(
             total_tokens=1000,
             seq_length_distribution=SeqLengthDistribution(mean=10.0, p50=9, p95=20, p99=25, max=30),
             near_duplicate_rate=0.05,
             bits_per_byte=1.2,
             vocab_size=50257,
+            prompt_tokens=400,
+            completion_tokens=600,
+            completion_length_distribution=SeqLengthDistribution(mean=6.0, p50=5, p95=12, p99=15, max=18),
         ),
         weights=WeightStats(by_group={
             "attention_qkv": LayerGroupWeightStats(weight_rms=0.15, weight_norm=400.0, max_abs=3.5),
         }),
-        training=TrainingDynamics(
+        training=InstructTrainingDynamics(
             init_loss=3.5,
             grad_norms={"layer.0.weight": 1.2},
             gradient_noise_scale=0.07,
             activation_rms={"layer.0": 0.5},
             grad_stats={"layer.0": LayerGradStats(frobenius_norm=0.5, rms=0.01, max_abs=0.1, top_singular_values=[0.5])},
             output_entropy=4.0,
+            masked_completion_loss=3.8,
         ),
     )
 

@@ -5,6 +5,7 @@ Outputs JSON result on the last line of stdout for the caller to parse.
 """
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -20,7 +21,8 @@ from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
 from trainer.model_prep.augmentation import augment_model
-from trainer.model_prep.stats import compute_baseline_stats
+from trainer.model_prep.env_stats import compute_env_stats
+from trainer.model_prep.stats import compute_text_stats
 
 
 def parse_args():
@@ -33,6 +35,13 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--intensity", type=float, default=None)
     parser.add_argument("--reward-functions", default=None, help="JSON list of reward function objects (for GRPO)")
+    # Environment task args
+    parser.add_argument("--environment-name", default=None, help="Environment name (for env tasks)")
+    parser.add_argument("--env-server-url", default=None, help="URL of running env server")
+    parser.add_argument("--num-episodes", type=int, default=50, help="Number of episodes to play")
+    parser.add_argument("--task-id-min", type=int, default=0)
+    parser.add_argument("--task-id-max", type=int, default=99999999)
+    parser.add_argument("--env-payload-extra", default=None, help="JSON env-specific payload")
     return parser.parse_args()
 
 
@@ -139,25 +148,39 @@ def main():
 
     # Compute baseline stats
     print("Computing baseline stats...", flush=True)
-    data_records = load_training_data(args.training_data)
 
-    # Parse reward functions for GRPO
-    reward_functions = None
-    if args.reward_functions:
-        reward_functions = json.loads(args.reward_functions)
-
-    if data_records and tokenizer is not None:
-        stats = compute_baseline_stats(
-            model, tokenizer, data_records,
-            task_type=args.task_type,
-            reward_functions=reward_functions,
-        )
+    if args.environment_name and args.env_server_url:
+        env_payload = json.loads(args.env_payload_extra) if args.env_payload_extra else None
+        stats = asyncio.run(compute_env_stats(
+            model_path=args.model,
+            model=model,
+            environment_name=args.environment_name,
+            env_server_url=args.env_server_url,
+            num_episodes=args.num_episodes,
+            task_id_min=args.task_id_min,
+            task_id_max=args.task_id_max,
+            env_payload_extra=env_payload,
+        ))
     else:
-        print("Warning: no training data available for stats", flush=True)
-        stats = None
+        data_records = load_training_data(args.training_data)
+        reward_functions = json.loads(args.reward_functions) if args.reward_functions else None
 
-    if stats:
+        if data_records and tokenizer is not None:
+            stats = compute_text_stats(
+                model, tokenizer, data_records,
+                task_type=args.task_type,
+                reward_functions=reward_functions,
+            )
+        else:
+            print("Warning: no training data available for stats", flush=True)
+            stats = None
+
+    if stats and hasattr(stats, "training"):
         print(f"Baseline stats: loss={stats.training.init_loss:.4f}, entropy={stats.training.output_entropy:.4f}", flush=True)
+    elif stats and hasattr(stats, "env_stats"):
+        n = stats.env_stats.num_episodes
+        scores = stats.env_stats.episode_scores
+        print(f"Env stats: {n} episodes, mean_score={sum(scores)/max(n,1):.3f}", flush=True)
 
     # Output result as JSON on last line (parsed by caller)
     result = {

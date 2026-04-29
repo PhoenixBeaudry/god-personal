@@ -16,7 +16,7 @@ from core.models.model_prep_models import AugmentationType
 from core.models.model_prep_models import BaselineStats
 from core.models.payload_models import ModelPrepResponse
 from trainer.model_prep.augmentation import augment_model
-from trainer.model_prep.stats import compute_baseline_stats
+from trainer.model_prep.stats import compute_text_stats
 from trainer.model_prep.entrypoint import build_augmentation_config, generate_anonymous_repo_name
 
 
@@ -111,7 +111,7 @@ class TestFullPipeline:
                 intensity=0.01,
             )
             augment_model(model, config)
-            stats = compute_baseline_stats(model, tokenizer, SAMPLE_DATA)
+            stats = compute_text_stats(model, tokenizer, SAMPLE_DATA)
 
             result = ModelPrepResponse(
                 augmented_model_id="test/augmented-abc123",
@@ -126,7 +126,7 @@ class TestFullPipeline:
         with tempfile.TemporaryDirectory() as tmp:
             model_path, data_path, model, tokenizer = _create_tiny_model_and_data(tmp)
 
-            stats = compute_baseline_stats(model, tokenizer, SAMPLE_DATA)
+            stats = compute_text_stats(model, tokenizer, SAMPLE_DATA)
             result = ModelPrepResponse(
                 augmented_model_id=None,
                 baseline_stats=stats,
@@ -141,7 +141,7 @@ class TestFullPipeline:
         with tempfile.TemporaryDirectory() as tmp:
             model_path, data_path, model, tokenizer = _create_tiny_model_and_data(tmp)
 
-            stats = compute_baseline_stats(model, tokenizer, SAMPLE_DATA)
+            stats = compute_text_stats(model, tokenizer, SAMPLE_DATA)
             result = ModelPrepResponse(
                 augmented_model_id="test/aug-123",
                 baseline_stats=stats,
@@ -169,7 +169,7 @@ class TestFullPipeline:
                     intensity=0.05,
                 )
                 augment_model(model, config)
-                stats = compute_baseline_stats(model, tokenizer, SAMPLE_DATA)
+                stats = compute_text_stats(model, tokenizer, SAMPLE_DATA)
                 stats_by_type[aug_type] = stats
 
             # At least some types should produce different losses

@@ -8,7 +8,7 @@ import pytest
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from trainer.model_prep.stats import compute_baseline_stats
+from trainer.model_prep.stats import compute_text_stats
 
 
 MODEL_ID = "distilgpt2"
@@ -44,12 +44,12 @@ def hard_dataset(tokenizer):
 
 @pytest.fixture(scope="module")
 def easy_stats(model, tokenizer, easy_dataset):
-    return compute_baseline_stats(model, tokenizer, easy_dataset, max_samples=50)
+    return compute_text_stats(model, tokenizer, easy_dataset, max_samples=50)
 
 
 @pytest.fixture(scope="module")
 def hard_stats(model, tokenizer, hard_dataset):
-    return compute_baseline_stats(model, tokenizer, hard_dataset, max_samples=50)
+    return compute_text_stats(model, tokenizer, hard_dataset, max_samples=50)
 
 
 class TestDatasetDifferences:
