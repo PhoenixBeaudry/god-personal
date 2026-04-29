@@ -383,7 +383,10 @@ def run_downloader_container(
             detach=True,
         )
 
-        stream_container_logs(container, get_all_context_tags())
+        try:
+            stream_container_logs(container, get_all_context_tags())
+        except Exception as log_err:
+            logger.warning(f"Log streaming error (non-fatal): {log_err}", extra=log_labels)
 
         result = container.wait()
         exit_code = result.get("StatusCode", -1)

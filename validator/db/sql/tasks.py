@@ -833,6 +833,9 @@ async def get_task(task_id: UUID, psql_db: PSQLDB, connection: Connection | None
             return None
 
         full_task_data = dict(full_row)
+        for jsonb_field in (cst.AUGMENTATION_CONFIG, cst.BASELINE_STATS):
+            if jsonb_field in full_task_data and isinstance(full_task_data[jsonb_field], str):
+                full_task_data[jsonb_field] = json.loads(full_task_data[jsonb_field])
         if task_type == TaskType.INSTRUCTTEXTTASK.value:
             return InstructTextRawTask(**full_task_data)
         elif task_type == TaskType.IMAGETASK.value:
@@ -974,6 +977,9 @@ async def get_task_by_id(task_id: UUID, psql_db: PSQLDB) -> AnyTypeTask:
             return None
 
         full_task_data = dict(row)
+        for jsonb_field in (cst.AUGMENTATION_CONFIG, cst.BASELINE_STATS):
+            if jsonb_field in full_task_data and isinstance(full_task_data[jsonb_field], str):
+                full_task_data[jsonb_field] = json.loads(full_task_data[jsonb_field])
         if task_type == TaskType.INSTRUCTTEXTTASK.value:
             return InstructTextTask(**full_task_data)
         elif task_type == TaskType.IMAGETASK.value:
@@ -1138,6 +1144,9 @@ async def _create_task_from_data(
 ) -> AnyTypeTask | None:
     """Create a task object from the given data based on task type"""
     full_task_data = dict(task_data)
+    for jsonb_field in (cst.AUGMENTATION_CONFIG, cst.BASELINE_STATS):
+        if jsonb_field in full_task_data and isinstance(full_task_data[jsonb_field], str):
+            full_task_data[jsonb_field] = json.loads(full_task_data[jsonb_field])
 
     if task_type == TaskType.INSTRUCTTEXTTASK.value:
         return InstructTextRawTask(**full_task_data)
