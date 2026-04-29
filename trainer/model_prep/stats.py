@@ -406,8 +406,10 @@ def _compute_masked_loss(model, tokenizer, prompt_texts: list[str], completion_t
             labels[0, :prompt_len] = -100  # mask prompt tokens
 
             outputs = model(**full_enc, labels=labels)
-            total_loss += outputs.loss.item()
-            n += 1
+            loss_val = outputs.loss.item()
+            if not math.isnan(loss_val) and not math.isinf(loss_val):
+                total_loss += loss_val
+                n += 1
     return total_loss / max(n, 1)
 
 

@@ -208,6 +208,7 @@ async def main():
     parser.add_argument("--skip-env", action="store_true", help="Skip environment tasks")
     parser.add_argument("--skip-augmentation", action="store_true", help="Skip augmented runs")
     parser.add_argument("--rounds", type=int, default=1, help="Repeat each task type N times")
+    parser.add_argument("--only", choices=["instruct", "dpo", "grpo", "env"], help="Run only this task type")
     args = parser.parse_args()
 
     print("Loading config...")
@@ -227,20 +228,19 @@ async def main():
             print(f"ROUND {round_num + 1}/{args.rounds}")
             print(f"{'#'*60}")
 
-        # Instruct
-        print(f"\n--- Instruct Task ---")
-        results.append(await test_instruct(config, models, instruct_datasets))
+        if not args.only or args.only == "instruct":
+            print(f"\n--- Instruct Task ---")
+            results.append(await test_instruct(config, models, instruct_datasets))
 
-        # DPO
-        print(f"\n--- DPO Task ---")
-        results.append(await test_dpo(config, models, dpo_datasets))
+        if not args.only or args.only == "dpo":
+            print(f"\n--- DPO Task ---")
+            results.append(await test_dpo(config, models, dpo_datasets))
 
-        # GRPO
-        print(f"\n--- GRPO Task ---")
-        results.append(await test_grpo(config, models, instruct_datasets))
+        if not args.only or args.only == "grpo":
+            print(f"\n--- GRPO Task ---")
+            results.append(await test_grpo(config, models, instruct_datasets))
 
-        # Env
-        if not args.skip_env:
+        if (not args.only or args.only == "env") and not args.skip_env:
             print(f"\n--- Environment Task ---")
             results.append(await test_env(config, models, instruct_datasets))
 
