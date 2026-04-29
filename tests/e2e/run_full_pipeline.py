@@ -44,7 +44,7 @@ from validator.tasks.synthetic_scheduler import (
     create_synthetic_instruct_text_task,
 )
 from validator.utils.logging import get_logger
-from validator.utils.model_prep import dispatch_model_prep
+from validator.utils.model_prep import dispatch_augmentation_and_stats
 
 
 logger = get_logger(__name__)
@@ -100,7 +100,7 @@ async def _prep_and_verify(task, config, task_type_label: str) -> dict:
         env_name = getattr(task, "environment_name", None)
         env_config = ENVIRONMENTS.get(env_name) if env_name else None
 
-        prep_result = await dispatch_model_prep(
+        prep_result = await dispatch_augmentation_and_stats(
             task_id=str(task.task_id),
             model_id=task.model_id,
             training_data_url=task.training_data,

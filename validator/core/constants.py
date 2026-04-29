@@ -324,6 +324,9 @@ YARN_EXTENSION_PROBABILITY = 0.0  # Probability of applying YaRN extension to to
 YARN_TOURNAMENT_FACTORS = [2, 4]
 MODEL_COPY_ENDPOINT = "https://huggingface.co/api/models/{source_repo}/duplicate"
 
+# Model prep constants
+BASELINE_STATS_ENABLED_ORGANIC = False  # Run model prep (stats) for organic requests
+
 # Model augmentation constants
 AUGMENTATION_ENABLED_TEXT = True  # Enable augmentations for text tasks
 AUGMENTATION_ENABLED_IMAGE = False  # Enable augmentations for image tasks

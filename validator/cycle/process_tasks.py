@@ -24,7 +24,7 @@ from validator.utils.cache_clear import manage_models_cache
 from validator.utils.logging import LogContext
 from validator.utils.logging import add_context_tag
 from validator.utils.logging import get_logger
-from validator.utils.model_prep import dispatch_model_prep
+from validator.utils.model_prep import dispatch_augmentation_and_stats
 
 
 logger = get_logger(__name__)
@@ -117,21 +117,24 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
             logger.info(f"THE TASK HAS BEEN PREPPED {task}")
 
             # Model prep: augmentation + baseline stats (runs on trainer GPU)
-            reward_fns = getattr(task, "reward_functions", None)
-            env_name = getattr(task, "environment_name", None)
-            env_config = ENVIRONMENTS.get(env_name) if env_name else None
-            prep_result = await dispatch_model_prep(
-                task_id=str(task.task_id),
-                model_id=task.model_id,
-                training_data_url=task.training_data,
-                augmentation_config=task.augmentation_config,
-                model_params_count=task.model_params_count,
-                task_type=task.task_type,
-                config=config,
-                reward_functions=reward_fns,
-                environment_name=env_name,
-                env_config=env_config,
-            )
+            # Skip for organic tasks when stats are disabled (no augmentation either)
+            prep_result = None
+            if not (task.is_organic and not cst.BASELINE_STATS_ENABLED_ORGANIC):
+                reward_fns = getattr(task, "reward_functions", None)
+                env_name = getattr(task, "environment_name", None)
+                env_config = ENVIRONMENTS.get(env_name) if env_name else None
+                prep_result = await dispatch_augmentation_and_stats(
+                    task_id=str(task.task_id),
+                    model_id=task.model_id,
+                    training_data_url=task.training_data,
+                    augmentation_config=task.augmentation_config,
+                    model_params_count=task.model_params_count,
+                    task_type=task.task_type,
+                    config=config,
+                    reward_functions=reward_fns,
+                    environment_name=env_name,
+                    env_config=env_config,
+                )
             if prep_result is not None:
                 if prep_result.augmented_model_id:
                     task.augmented_model_id = prep_result.augmented_model_id

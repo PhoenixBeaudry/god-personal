@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 MODEL_PREP_TIMEOUT_SECONDS = 600
 
 
-async def dispatch_model_prep(
+async def dispatch_augmentation_and_stats(
     task_id: str,
     model_id: str,
     training_data_url: str,
