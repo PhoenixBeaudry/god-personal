@@ -68,6 +68,8 @@ class DatasetStatsBase(BaseModel):
     near_duplicate_rate: float
     bits_per_byte: float
     vocab_size: int
+    unique_tokens_in_data: int = 0
+    vocab_coverage_ratio: float = 0.0
 
 
 class InstructDatasetStats(DatasetStatsBase):
@@ -94,11 +96,13 @@ class GrpoDatasetStats(DatasetStatsBase):
 
 class TrainingDynamicsBase(BaseModel):
     init_loss: float
+    init_loss_std: float = 0.0
     grad_norms: dict[str, float]
     gradient_noise_scale: float
     activation_rms: dict[str, float]
     grad_stats: dict[str, LayerGradStats]
     output_entropy: float
+    output_entropy_std: float = 0.0
 
 
 class InstructTrainingDynamics(TrainingDynamicsBase):
@@ -144,6 +148,11 @@ class EnvStats(BaseModel):
     environment_name: str
     num_episodes: int
     episode_scores: list[float]
+    mean_score: float = 0.0
+    std_score: float = 0.0
+    min_score: float = 0.0
+    max_score: float = 0.0
+    median_score: float = 0.0
 
 
 class EnvBaselineStats(BaseModel):

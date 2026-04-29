@@ -6,7 +6,6 @@ Per-type stats for instruct, DPO, GRPO, and chat tasks.
 import math
 import re
 from collections import defaultdict
-from typing import Union
 
 import numpy as np
 import torch
@@ -17,7 +16,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from core.models.utility_models import TaskType
 from core.models.model_prep_models import (
     BaselineStats,
-    DatasetStatsBase,
     DpoBaselineStats,
     DpoDatasetStats,
     DpoTrainingDynamics,
@@ -30,7 +28,6 @@ from core.models.model_prep_models import (
     LayerGradStats,
     LayerGroupWeightStats,
     SeqLengthDistribution,
-    TrainingDynamicsBase,
     WeightStats,
 )
 
@@ -128,6 +125,13 @@ def _token_lengths(texts: list[str], tokenizer) -> list[int]:
     return [len(tokenizer(t, truncation=False)["input_ids"]) for t in texts]
 
 
+def _count_unique_tokens(texts: list[str], tokenizer) -> int:
+    unique: set[int] = set()
+    for t in texts:
+        unique.update(tokenizer(t, truncation=False)["input_ids"])
+    return len(unique)
+
+
 # --- Layer type classification ---
 
 LAYER_TYPE_PATTERNS = {
@@ -190,7 +194,8 @@ def _compute_near_duplicate_rate(texts: list[str], num_perm: int = 128, threshol
         dup_count = sum(1 for i, m in enumerate(minhashes) if len(lsh.query(m)) > 1)
         return dup_count / max(len(texts), 1)
     except ImportError:
-        return 0.0
+        print("Warning: datasketch not installed, skipping near-duplicate detection", flush=True)
+        return float("nan")
 
 
 def _compute_bits_per_byte(texts: list[str], device: str = "cpu") -> float:
@@ -208,7 +213,8 @@ def _compute_bits_per_byte(texts: list[str], device: str = "cpu") -> float:
             total_bytes += len(text.encode("utf-8"))
             enc = ref_tokenizer(text, truncation=True, max_length=512, return_tensors="pt").to(device)
             outputs = ref_model(**enc, labels=enc["input_ids"])
-            total_loss_nats += outputs.loss.item() * enc["input_ids"].shape[1]
+            n_predicted_tokens = enc["input_ids"].shape[1] - 1
+            total_loss_nats += outputs.loss.item() * max(n_predicted_tokens, 1)
     del ref_model
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -243,33 +249,13 @@ def _compute_base_training_dynamics(
     dataset = SimpleTextDataset(texts, tokenizer, max_length=max_length)
     loader = DataLoader(dataset, batch_size=1, shuffle=False)
 
-    # Init loss + entropy
-    model.eval()
-    total_loss = 0.0
-    total_entropy = 0.0
-    n_batches = 0
-    with torch.no_grad():
-        for batch in loader:
-            input_ids = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
-            total_loss += outputs.loss.item()
-            logits_f32 = outputs.logits.float()
-            probs = F.softmax(logits_f32, dim=-1)
-            entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1).mean().item()
-            if not math.isnan(entropy) and not math.isinf(entropy):
-                total_entropy += entropy
-            n_batches += 1
-
-    init_loss = total_loss / max(n_batches, 1)
-    output_entropy = total_entropy / max(n_batches, 1)
-
-    # Forward hooks for activation RMS
+    # Forward hooks for activation RMS — registered before eval loop so we
+    # collect across all batches in eval mode (no dropout/batchnorm noise).
     activation_rms_accum: dict[str, list[float]] = defaultdict(list)
     hooks = []
 
     def make_hook(name):
-        def hook(module, input, output):
+        def hook(module, _input, output):
             out = output[0] if isinstance(output, tuple) else output
             if isinstance(out, torch.Tensor):
                 activation_rms_accum[name].append(torch.sqrt(torch.mean(out.float() ** 2)).item())
@@ -278,6 +264,36 @@ def _compute_base_training_dynamics(
     for name, module in model.named_modules():
         if not list(module.children()) and any(p.requires_grad for p in module.parameters(recurse=False)):
             hooks.append(module.register_forward_hook(make_hook(name)))
+
+    # Init loss + entropy (eval mode — also collects activation RMS via hooks)
+    model.eval()
+    batch_losses: list[float] = []
+    batch_entropies: list[float] = []
+    with torch.no_grad():
+        for batch in loader:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+            batch_losses.append(outputs.loss.cpu().item())
+            logits_cpu = outputs.logits.float().cpu()
+            mask_cpu = attention_mask.cpu().float()
+            probs = F.softmax(logits_cpu, dim=-1)
+            per_position_entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1)
+            entropy = (per_position_entropy * mask_cpu).sum().item() / max(mask_cpu.sum().item(), 1.0)
+            if not math.isnan(entropy) and not math.isinf(entropy):
+                batch_entropies.append(entropy)
+
+    loss_arr = np.array(batch_losses) if batch_losses else np.array([0.0])
+    entropy_arr = np.array(batch_entropies) if batch_entropies else np.array([0.0])
+    init_loss = float(np.mean(loss_arr))
+    init_loss_std = float(np.std(loss_arr))
+    output_entropy = float(np.mean(entropy_arr))
+    output_entropy_std = float(np.std(entropy_arr))
+
+    # Remove hooks before grad pass so we don't mix train-mode activations in
+    for h in hooks:
+        h.remove()
+    activation_rms = {n: float(np.mean(v)) for n, v in activation_rms_accum.items()}
 
     # Forward+backward for grads (with gradient checkpointing for large models)
     model.train()
@@ -315,10 +331,6 @@ def _compute_base_training_dynamics(
             top_singular_values=top_sv,
         )
 
-    for h in hooks:
-        h.remove()
-
-    activation_rms = {n: float(np.mean(v)) for n, v in activation_rms_accum.items()}
     noise_scale = _compute_gradient_noise_scale(model, loader, device, n_subbatches)
 
     if hasattr(model, "gradient_checkpointing_disable"):
@@ -328,18 +340,23 @@ def _compute_base_training_dynamics(
 
     return {
         "init_loss": init_loss,
+        "init_loss_std": init_loss_std,
         "grad_norms": grad_norms,
         "gradient_noise_scale": noise_scale,
         "activation_rms": activation_rms,
         "grad_stats": grad_stats,
         "output_entropy": output_entropy if not math.isnan(output_entropy) else 0.0,
+        "output_entropy_std": output_entropy_std if not math.isnan(output_entropy_std) else 0.0,
     }
 
 
 def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> float:
-    """Gradient noise scale via streaming Welford accumulation per parameter.
-    Mathematically identical to torch.stack(all_grads).var(dim=0).sum() / mean_norm²
-    but only stores running sum + sum_sq per parameter, never the full flat tensor."""
+    """Gradient noise scale via one-pass variance estimation per parameter.
+
+    Computes Var(g) / ||E[g]||² across sub-batch gradient estimates using the
+    naive sum/sum_sq formula with Bessel's correction. Accumulates in fp32 to
+    avoid precision loss from fp16 squaring.
+    """
     all_batches = list(loader)
     if len(all_batches) < n_subbatches:
         return 0.0
@@ -352,20 +369,20 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
     for i in range(n):
         chunk = all_batches[i * chunk_size:(i + 1) * chunk_size]
         model.zero_grad()
-        total_loss = 0.0
+        total_loss = torch.tensor(0.0, device=device)
         for batch in chunk:
             outputs = model(
                 input_ids=batch["input_ids"].to(device),
                 attention_mask=batch["attention_mask"].to(device),
                 labels=batch["input_ids"].to(device),
             )
-            total_loss += outputs.loss
+            total_loss = total_loss + outputs.loss
         (total_loss / len(chunk)).backward()
 
         for name, param in model.named_parameters():
             if param.grad is None:
                 continue
-            g = param.grad.detach().half().cpu()
+            g = param.grad.detach().float().cpu()
             if name not in grad_sum:
                 grad_sum[name] = torch.zeros_like(g)
                 grad_sum_sq[name] = torch.zeros_like(g)
@@ -375,9 +392,9 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
     total_var = 0.0
     total_mean_norm_sq = 0.0
     for name in grad_sum:
-        mean = (grad_sum[name] / n).float()
+        mean = grad_sum[name] / n
         # Bessel's correction (n-1) to match torch.var(dim=0)
-        var = ((grad_sum_sq[name].float() - grad_sum[name].float() ** 2 / n) / (n - 1))
+        var = (grad_sum_sq[name] - grad_sum[name] ** 2 / n) / (n - 1)
         total_var += var.sum().item()
         total_mean_norm_sq += mean.norm(2).item() ** 2
 
@@ -386,6 +403,21 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
     if total_mean_norm_sq < 1e-12:
         return 0.0
     return total_var / total_mean_norm_sq
+
+
+def _tokenize_prompt_completion(
+    tokenizer, prompt: str, completion: str, max_length: int = 512,
+) -> tuple[torch.Tensor, int]:
+    """Tokenize prompt and completion separately, concatenate IDs.
+
+    Returns (input_ids [1, seq_len], prompt_token_count).
+    This avoids BPE boundary artifacts from concatenating strings before tokenizing.
+    """
+    prompt_ids = tokenizer(prompt, add_special_tokens=True, truncation=False)["input_ids"]
+    completion_ids = tokenizer(completion, add_special_tokens=False, truncation=False)["input_ids"]
+    combined = (prompt_ids + completion_ids)[:max_length]
+    prompt_len = min(len(prompt_ids), len(combined))
+    return torch.tensor([combined], dtype=torch.long), prompt_len
 
 
 def _compute_masked_loss(model, tokenizer, prompt_texts: list[str], completion_texts: list[str], device, max_length: int = 512) -> float:
@@ -397,15 +429,14 @@ def _compute_masked_loss(model, tokenizer, prompt_texts: list[str], completion_t
         for prompt, completion in zip(prompt_texts, completion_texts):
             if not completion.strip():
                 continue
-            full_text = prompt + " " + completion
-            full_enc = tokenizer(full_text, truncation=True, max_length=max_length, return_tensors="pt").to(device)
-            prompt_enc = tokenizer(prompt, truncation=True, max_length=max_length, return_tensors="pt")
-            prompt_len = prompt_enc["input_ids"].shape[1]
+            input_ids, prompt_len = _tokenize_prompt_completion(tokenizer, prompt, completion, max_length)
+            input_ids = input_ids.to(device)
+            attention_mask = torch.ones_like(input_ids)
 
-            labels = full_enc["input_ids"].clone()
+            labels = input_ids.clone()
             labels[0, :prompt_len] = -100  # mask prompt tokens
 
-            outputs = model(**full_enc, labels=labels)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss_val = outputs.loss.item()
             if not math.isnan(loss_val) and not math.isinf(loss_val):
                 total_loss += loss_val
@@ -421,17 +452,15 @@ def _compute_log_probs(model, tokenizer, prompts: list[str], completions: list[s
         for prompt, completion in zip(prompts, completions):
             if not completion.strip():
                 continue
-            full_text = prompt + " " + completion
-            full_enc = tokenizer(full_text, truncation=True, max_length=max_length, return_tensors="pt").to(device)
-            prompt_enc = tokenizer(prompt, truncation=True, max_length=max_length, return_tensors="pt")
-            prompt_len = prompt_enc["input_ids"].shape[1]
+            input_ids, prompt_len = _tokenize_prompt_completion(tokenizer, prompt, completion, max_length)
+            input_ids = input_ids.to(device)
 
-            outputs = model(**full_enc)
+            outputs = model(input_ids=input_ids)
             logits = outputs.logits[0]  # (seq_len, vocab)
 
             # Get log-probs for completion tokens
             completion_logits = logits[prompt_len - 1:-1]  # shifted
-            completion_targets = full_enc["input_ids"][0, prompt_len:]
+            completion_targets = input_ids[0, prompt_len:]
             if completion_targets.shape[0] == 0:
                 continue
 
@@ -455,12 +484,16 @@ def _compute_instruct_stats(
     prompt_lengths = _token_lengths(list(prompts), tokenizer)
     completion_lengths = _token_lengths(list(completions), tokenizer)
 
+    unique_tokens = _count_unique_tokens(all_texts, tokenizer)
+    vocab_size = len(tokenizer)
     dataset_stats = InstructDatasetStats(
         total_tokens=sum(prompt_lengths) + sum(completion_lengths),
         seq_length_distribution=_make_seq_dist([p + c for p, c in zip(prompt_lengths, completion_lengths)]),
         near_duplicate_rate=_compute_near_duplicate_rate(all_texts),
         bits_per_byte=_compute_bits_per_byte(list(completions), device),
-        vocab_size=len(tokenizer),
+        vocab_size=vocab_size,
+        unique_tokens_in_data=unique_tokens,
+        vocab_coverage_ratio=unique_tokens / max(vocab_size, 1),
         prompt_tokens=sum(prompt_lengths),
         completion_tokens=sum(completion_lengths),
         completion_length_distribution=_make_seq_dist(completion_lengths),
@@ -491,18 +524,23 @@ def _compute_dpo_stats(
     ratios = [c / r if r > 0 else 1.0 for c, r in zip(chosen_lengths, rejected_lengths)]
     all_texts = [p + " " + c for p, c in zip(prompts, chosens)]
 
+    all_dpo_texts = list(prompts) + list(chosens) + list(rejecteds)
+    unique_tokens = _count_unique_tokens(all_dpo_texts, tokenizer)
+    vocab_size = len(tokenizer)
     dataset_stats = DpoDatasetStats(
         total_tokens=sum(prompt_lengths) + sum(chosen_lengths) + sum(rejected_lengths),
         seq_length_distribution=_make_seq_dist([p + c for p, c in zip(prompt_lengths, chosen_lengths)]),
         near_duplicate_rate=_compute_near_duplicate_rate(list(prompts)),
         bits_per_byte=_compute_bits_per_byte(list(prompts), device),
-        vocab_size=len(tokenizer),
+        vocab_size=vocab_size,
+        unique_tokens_in_data=unique_tokens,
+        vocab_coverage_ratio=unique_tokens / max(vocab_size, 1),
         prompt_tokens=sum(prompt_lengths),
         chosen_tokens=sum(chosen_lengths),
         rejected_tokens=sum(rejected_lengths),
         chosen_length_distribution=_make_seq_dist(chosen_lengths),
         rejected_length_distribution=_make_seq_dist(rejected_lengths),
-        chosen_rejected_length_ratio=float(np.mean(ratios)),
+        chosen_rejected_length_ratio=float(np.median(ratios)),
     )
 
     base_dynamics = _compute_base_training_dynamics(model, tokenizer, all_texts, device)
@@ -534,12 +572,16 @@ def _compute_grpo_stats(
     prompts = _extract_grpo_texts(records[:max_samples])
     prompt_lengths = _token_lengths(prompts, tokenizer)
 
+    unique_tokens = _count_unique_tokens(prompts, tokenizer)
+    vocab_size = len(tokenizer)
     dataset_stats = GrpoDatasetStats(
         total_tokens=sum(prompt_lengths),
         seq_length_distribution=_make_seq_dist(prompt_lengths),
         near_duplicate_rate=_compute_near_duplicate_rate(prompts),
         bits_per_byte=_compute_bits_per_byte(prompts, device),
-        vocab_size=len(tokenizer),
+        vocab_size=vocab_size,
+        unique_tokens_in_data=unique_tokens,
+        vocab_coverage_ratio=unique_tokens / max(vocab_size, 1),
         prompt_tokens=sum(prompt_lengths),
         prompt_length_distribution=_make_seq_dist(prompt_lengths),
     )
@@ -553,12 +595,21 @@ def _compute_grpo_stats(
         for rf in reward_functions:
             func_code = rf.reward_func if hasattr(rf, "reward_func") else str(rf)
             try:
-                namespace = {}
-                exec(func_code, namespace)
-                func_name = [k for k in namespace if callable(namespace[k]) and k != "__builtins__"][0]
-                scores = namespace[func_name](completions)
+                namespace: dict = {}
+                exec(func_code, namespace)  # noqa: S102
+                callables = [
+                    (k, v) for k, v in namespace.items()
+                    if callable(v) and k != "__builtins__"
+                ]
+                if not callables:
+                    print(f"Warning: reward function code defined no callables: {func_code[:80]}", flush=True)
+                    reward_scores[func_code[:30]] = 0.0
+                    continue
+                func_name, func = callables[0]
+                scores = func(completions)
                 reward_scores[func_name] = float(np.mean(scores))
-            except Exception:
+            except Exception as exc:
+                print(f"Warning: reward function failed: {exc}", flush=True)
                 reward_scores[func_code[:30]] = 0.0
 
     training = GrpoTrainingDynamics(**base_dynamics, baseline_reward_scores=reward_scores)

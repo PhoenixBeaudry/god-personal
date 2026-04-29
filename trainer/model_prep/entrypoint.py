@@ -180,9 +180,7 @@ def main():
     if stats and hasattr(stats, "training"):
         print(f"Baseline stats: loss={stats.training.init_loss:.4f}, entropy={stats.training.output_entropy:.4f}", flush=True)
     elif stats and hasattr(stats, "env_stats"):
-        n = stats.env_stats.num_episodes
-        scores = stats.env_stats.episode_scores
-        print(f"Env stats: {n} episodes, mean_score={sum(scores)/max(n,1):.3f}", flush=True)
+        print(f"Env stats: {stats.env_stats.num_episodes} episodes, mean_score={stats.env_stats.mean_score:.3f}", flush=True)
 
     # Output result as JSON on last line (parsed by caller)
     result = {

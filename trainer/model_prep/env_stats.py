@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import signal
+import statistics
 import subprocess
 import time
 
@@ -89,6 +90,25 @@ async def wait_for_health(
     raise TimeoutError(f"{service_name} at {url}{path} not healthy within {timeout_seconds}s")
 
 
+def _build_env_stats(environment_name: str, scores: list[float]) -> EnvStats:
+    if scores:
+        return EnvStats(
+            environment_name=environment_name,
+            num_episodes=len(scores),
+            episode_scores=scores,
+            mean_score=statistics.mean(scores),
+            std_score=statistics.stdev(scores) if len(scores) > 1 else 0.0,
+            min_score=min(scores),
+            max_score=max(scores),
+            median_score=statistics.median(scores),
+        )
+    return EnvStats(
+        environment_name=environment_name,
+        num_episodes=0,
+        episode_scores=[],
+    )
+
+
 # --- Episode playback ---
 
 async def compute_env_stats(
@@ -153,27 +173,18 @@ async def compute_env_stats(
                 scores.append(score)
                 print(f"Episode {i+1}/{num_episodes}: score={score:.3f}", flush=True)
 
-        mean = sum(scores) / max(len(scores), 1)
-        print(f"Done: {len(scores)} episodes, mean={mean:.3f}", flush=True)
+        print(f"Done: {len(scores)} episodes, mean={statistics.mean(scores):.3f}", flush=True)
 
         return EnvBaselineStats(
             weights=weight_stats,
-            env_stats=EnvStats(
-                environment_name=environment_name,
-                num_episodes=len(scores),
-                episode_scores=scores,
-            ),
+            env_stats=_build_env_stats(environment_name, scores),
         )
 
     except TimeoutError:
         print("SGLang failed to start within timeout", flush=True)
         return EnvBaselineStats(
             weights=weight_stats,
-            env_stats=EnvStats(
-                environment_name=environment_name,
-                num_episodes=0,
-                episode_scores=[],
-            ),
+            env_stats=_build_env_stats(environment_name, []),
         )
 
     finally:
