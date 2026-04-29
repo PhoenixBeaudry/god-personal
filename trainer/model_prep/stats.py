@@ -221,7 +221,7 @@ def _compute_bits_per_byte(texts: list[str], device: str = "cpu") -> float:
     return (total_loss_nats / math.log(2)) / max(total_bytes, 1)
 
 
-def _compute_weight_stats(model) -> WeightStats:
+def compute_weight_stats(model) -> WeightStats:
     group_tensors: dict[str, list[torch.Tensor]] = defaultdict(list)
     for name, param in model.named_parameters():
         group_tensors[classify_layer(name)].append(param.data.float())
@@ -506,7 +506,7 @@ def _compute_instruct_stats(
 
     return InstructBaselineStats(
         dataset=dataset_stats,
-        weights=_compute_weight_stats(model),
+        weights=compute_weight_stats(model),
         training=training,
     )
 
@@ -560,7 +560,7 @@ def _compute_dpo_stats(
 
     return DpoBaselineStats(
         dataset=dataset_stats,
-        weights=_compute_weight_stats(model),
+        weights=compute_weight_stats(model),
         training=training,
     )
 
@@ -616,7 +616,7 @@ def _compute_grpo_stats(
 
     return GrpoBaselineStats(
         dataset=dataset_stats,
-        weights=_compute_weight_stats(model),
+        weights=compute_weight_stats(model),
         training=training,
     )
 

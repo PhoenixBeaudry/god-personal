@@ -9,13 +9,15 @@ import asyncio
 import hashlib
 import json
 import os
-import sys
+import tempfile
 
 import torch
 from huggingface_hub import HfApi
 from huggingface_hub import repo_exists
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
+
+from core.utils import download_s3_file
 
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
@@ -67,9 +69,6 @@ def generate_anonymous_repo_name(model_id: str, seed: int) -> str:
 
 def load_training_data(path: str, max_records: int = 100) -> list[dict]:
     """Load training data from a JSON file."""
-    from core.utils import download_s3_file
-    import asyncio
-
     if path.startswith("http"):
         local_path = asyncio.run(download_s3_file(path))
     else:
@@ -93,7 +92,6 @@ def upload_augmented_model(model, tokenizer, repo_id: str, hf_token: str) -> Non
 
     # Scrub _name_or_path from config
     api = HfApi(token=hf_token)
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         config_path = api.hf_hub_download(repo_id=repo_id, filename="config.json", local_dir=tmp, token=hf_token)
         with open(config_path, "r") as f:
@@ -166,7 +164,7 @@ def main():
         data_records = load_training_data(args.training_data)
         reward_functions = json.loads(args.reward_functions) if args.reward_functions else None
 
-        if data_records and tokenizer is not None:
+        if data_records:
             task_type_enum = TaskType(args.task_type)
             stats = compute_text_stats(
                 model, tokenizer, data_records,

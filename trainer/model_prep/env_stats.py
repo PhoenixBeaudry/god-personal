@@ -15,7 +15,7 @@ import time
 import aiohttp
 
 from core.models.model_prep_models import EnvBaselineStats, EnvStats
-from trainer.model_prep.stats import _compute_weight_stats
+from trainer.model_prep.stats import compute_weight_stats
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ async def compute_env_stats(
     """Compute env stats: deploy model via SGLang, play episodes, collect scores."""
 
     print("Computing weight stats...", flush=True)
-    weight_stats = _compute_weight_stats(model)
+    weight_stats = compute_weight_stats(model)
 
     sglang_cmd = build_sglang_command(model_path, seed=42)
     sglang_proc = start_process(sglang_cmd, "sglang")
