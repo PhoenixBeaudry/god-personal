@@ -365,7 +365,7 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
         for name, param in model.named_parameters():
             if param.grad is None:
                 continue
-            g = param.grad.detach().half()
+            g = param.grad.detach().half().cpu()
             if name not in grad_sum:
                 grad_sum[name] = torch.zeros_like(g)
                 grad_sum_sq[name] = torch.zeros_like(g)
