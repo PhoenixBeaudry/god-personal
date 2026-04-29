@@ -365,7 +365,7 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
         for name, param in model.named_parameters():
             if param.grad is None:
                 continue
-            g = param.grad.detach().float()
+            g = param.grad.detach().half()
             if name not in grad_sum:
                 grad_sum[name] = torch.zeros_like(g)
                 grad_sum_sq[name] = torch.zeros_like(g)
@@ -375,9 +375,9 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
     total_var = 0.0
     total_mean_norm_sq = 0.0
     for name in grad_sum:
-        mean = grad_sum[name] / n
+        mean = (grad_sum[name] / n).float()
         # Bessel's correction (n-1) to match torch.var(dim=0)
-        var = (grad_sum_sq[name] - grad_sum[name] ** 2 / n) / (n - 1)
+        var = ((grad_sum_sq[name].float() - grad_sum[name].float() ** 2 / n) / (n - 1))
         total_var += var.sum().item()
         total_mean_norm_sq += mean.norm(2).item() ** 2
 
