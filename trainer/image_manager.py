@@ -441,6 +441,7 @@ def run_model_prep_container(
         dataset_url=training_data_url,
         task_type=task_type,
         hotkey="",
+        file_format=FileFormat.S3,
         log_labels=log_labels,
     )
     if download_exit != 0:
