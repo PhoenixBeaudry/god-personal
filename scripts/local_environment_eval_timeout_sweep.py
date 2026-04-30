@@ -100,7 +100,7 @@ _install_console_progress_logging()
 
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen2.5-7B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 LORA_MODEL_NAME = "gradients-io-tournaments/gin_rummy_variance_test_1"  # e.g. "your-org/your-lora-repo"
 
 # --- Evaluation Configuration ---
