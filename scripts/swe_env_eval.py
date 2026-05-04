@@ -7,20 +7,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-14B-Instruct"
 BASE_MODEL_REVISION = None
 LORA_MODEL_NAME = None # Put the name of your repo containing the LORA here
 LORA_MODEL_REVISION = None
 LOCAL_LORA_PATH = None
 
 # --- Evaluation Configuration ---
-NUM_EVALS = 1
+NUM_EVALS = 10
 TEMPERATURE = 0.0
 AGENT_TYPE = ""              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
 EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
-TASK_ID_MAX = 100         # adjust to match the # of tasks available in the cache
+TASK_ID_MAX = 7349         # adjust to match the # of tasks available in the cache
 
 ENV_EVAL_MAX_CONCURRENT_REQUESTS = 1
 NUM_ENV_SERVERS = 1
