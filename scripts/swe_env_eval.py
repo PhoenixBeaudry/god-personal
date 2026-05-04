@@ -70,7 +70,7 @@ def run_evaluation(base_seed):
                 f"python3 -m sglang.launch_server --model-path {BASE_MODEL_NAME} "
                 "--enable-lora --lora-paths trained_lora=/lora/trained_lora "
                 "--lora-backend triton --max-lora-rank 64 "
-                "--host 0.0.0.0 --port 30000 --tensor-parallel-size 1 --dtype float16 --enable-deterministic-inference "
+                "--host 0.0.0.0 --port 30000 --tensor-parallel-size 1 --dtype float16 "
                 f"--random-seed {RANDOM_SEED}"
             )
         else:
@@ -78,7 +78,7 @@ def run_evaluation(base_seed):
             sglang_command = (
                 f"python3 -m sglang.launch_server --model-path {BASE_MODEL_NAME} "
                 f"{'--revision ' + BASE_MODEL_REVISION if BASE_MODEL_REVISION else ''} "
-                "--host 0.0.0.0 --port 30000 --tensor-parallel-size 1 --dtype float16 --enable-deterministic-inference "
+                "--host 0.0.0.0 --port 30000 --tensor-parallel-size 1 --dtype float16 "
                 f"--random-seed {RANDOM_SEED}"
             )
 
