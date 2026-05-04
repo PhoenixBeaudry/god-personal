@@ -22,7 +22,7 @@ EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
 TASK_ID_MAX = 7349         # adjust to match the # of tasks available in the cache
 
-ENV_EVAL_MAX_CONCURRENT_REQUESTS = 4
+ENV_EVAL_MAX_CONCURRENT_REQUESTS = 1
 NUM_ENV_SERVERS = 1
 
 ##############################################################################################
