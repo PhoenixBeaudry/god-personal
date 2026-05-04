@@ -14,7 +14,7 @@ LORA_MODEL_REVISION = None
 LOCAL_LORA_PATH = None
 
 # --- Evaluation Configuration ---
-NUM_EVALS = 10
+NUM_EVALS = 40
 TEMPERATURE = 0.0
 AGENT_TYPE = "miniswe"              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
@@ -22,7 +22,7 @@ EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
 TASK_ID_MAX = 7349         # adjust to match the # of tasks available in the cache
 
-ENV_EVAL_MAX_CONCURRENT_REQUESTS = 1
+ENV_EVAL_MAX_CONCURRENT_REQUESTS = 2
 NUM_ENV_SERVERS = 1
 
 ##############################################################################################
