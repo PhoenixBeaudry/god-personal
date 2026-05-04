@@ -13,6 +13,7 @@ from core import constants as cst
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import BaselineStats
 from core.models.utility_models import EnvironmentDatasetType
+from core.constants import EnvironmentName
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType
 from core.models.utility_models import ImageModelType
@@ -133,6 +134,15 @@ class JobStatusResponse(BaseModel):
     status: JobStatus
 
 
+class EnvConfig(BaseModel):
+    """Per-environment config for model prep evaluation."""
+    env_image: str
+    task_id_min: int
+    task_id_max: int
+    num_episodes: int = 100
+    eval_payload_extra: dict | None = None
+
+
 class ModelPrepRequest(BaseModel):
     task_id: str
     model_id: str
@@ -141,13 +151,7 @@ class ModelPrepRequest(BaseModel):
     augmentation_config: AugmentationConfig | None = None
     gpu_ids: list[int] = [0]
     reward_functions: list[RewardFunction] | None = None
-    # Environment task fields
-    environment_name: str | None = None
-    env_server_url: str | None = None
-    num_episodes: int = 50
-    task_id_min: int | None = None
-    task_id_max: int | None = None
-    env_payload_extra: dict | None = None
+    env_configs: dict[EnvironmentName, EnvConfig] | None = None
 
     model_config = ConfigDict(protected_namespaces=())
 
@@ -294,8 +298,8 @@ class NewTaskRequestChat(NewTaskRequest):
 
 
 class NewTaskRequestEnvironment(NewTaskRequest):
-    environment_name: str = Field(
-        ..., description="The name of the specific environment we are training for.", examples=["alfworld"]
+    environment_name: EnvironmentName = Field(
+        ..., description="The name of the specific environment we are training for.", examples=["gin_rummy"]
     )
 
     ds_repo: str = Field(..., description="The repository for the dataset", examples=["Magpie-Align/Magpie-Pro-300K-Filtered"])
@@ -523,7 +527,7 @@ class GrpoTaskDetails(TaskDetails):
 
 class EnvironmentTaskDetails(TaskDetails):
     task_type: TaskType = TaskType.ENVIRONMENTTASK
-    environment_name: str
+    environment_name: EnvironmentName
     base_model_repository: str
     ds_repo: str
 

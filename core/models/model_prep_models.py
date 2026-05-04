@@ -8,6 +8,8 @@ from typing import Union
 
 from pydantic import BaseModel
 
+from core.constants import EnvironmentName
+
 
 # --- Augmentation models ---
 
@@ -144,9 +146,7 @@ class GrpoBaselineStats(BaseModel):
 # --- Environment stats ---
 
 class EnvStats(BaseModel):
-    environment_name: str
     num_episodes: int
-    episode_scores: list[float]
     mean_score: float = 0.0
     std_score: float = 0.0
     min_score: float = 0.0
@@ -157,7 +157,7 @@ class EnvStats(BaseModel):
 class EnvBaselineStats(BaseModel):
     task_type: str = "env"
     weights: WeightStats
-    env_stats: EnvStats
+    env_stats: dict[EnvironmentName, EnvStats]
 
 
 BaselineStats = Union[InstructBaselineStats, DpoBaselineStats, GrpoBaselineStats, EnvBaselineStats]

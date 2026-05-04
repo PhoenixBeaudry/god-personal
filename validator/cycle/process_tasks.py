@@ -10,7 +10,6 @@ from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from validator.core.config import Config
 from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.constants import ENVIRONMENTS
 from validator.core.models import AnyTypeRawTask
 from validator.core.models import RawTask
 from validator.core.task_config_models import get_task_config
@@ -121,8 +120,7 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
             prep_result = None
             if not (task.is_organic and not cst.BASELINE_STATS_ENABLED_ORGANIC):
                 reward_fns = getattr(task, "reward_functions", None)
-                env_name = getattr(task, "environment_name", None)
-                env_config = ENVIRONMENTS.get(env_name) if env_name else None
+                is_env_task = task.task_type == TaskType.ENVIRONMENTTASK
                 prep_result = await dispatch_augmentation_and_stats(
                     task_id=str(task.task_id),
                     model_id=task.model_id,
@@ -132,8 +130,7 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
                     task_type=task.task_type,
                     config=config,
                     reward_functions=reward_fns,
-                    environment_name=env_name,
-                    env_config=env_config,
+                    is_env_task=is_env_task,
                 )
             if prep_result is not None:
                 if prep_result.augmented_model_id:

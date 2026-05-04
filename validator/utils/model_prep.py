@@ -5,10 +5,13 @@ Called during task prep, before miners are assigned.
 
 import httpx
 
+from core.constants import ENVIRONMENT_CONFIGS
+from core.constants import EnvironmentName
+from core.models.model_prep_models import AugmentationConfig
+from core.models.payload_models import EnvConfig
 from core.models.payload_models import ModelPrepRequest
 from core.models.payload_models import ModelPrepResponse
 from core.models.tournament_models import GpuRequirement
-from core.models.model_prep_models import AugmentationConfig
 from validator.core.config import Config
 from validator.core.constants import MODEL_PREP_ENDPOINT
 from validator.tournament.orchestrator import _check_suitable_gpus
@@ -17,7 +20,9 @@ from validator.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-MODEL_PREP_TIMEOUT_SECONDS = 600
+MODEL_PREP_TIMEOUT_SECONDS = 1800
+
+NUM_EPISODES_MODEL_PREP = 100
 
 
 def _gpu_requirement_for_model_prep(num_params: int) -> GpuRequirement:
@@ -41,6 +46,20 @@ def _gpu_requirement_for_model_prep(num_params: int) -> GpuRequirement:
     return GpuRequirement.H100_8X
 
 
+def _build_env_configs() -> dict[EnvironmentName, EnvConfig]:
+    """Build env_configs payload from the canonical ENVIRONMENT_CONFIGS."""
+    return {
+        env_name: EnvConfig(
+            env_image=cfg.env_image,
+            task_id_min=cfg.task_id_min,
+            task_id_max=cfg.task_id_max,
+            num_episodes=NUM_EPISODES_MODEL_PREP,
+            eval_payload_extra=cfg.eval_payload_extra,
+        )
+        for env_name, cfg in ENVIRONMENT_CONFIGS.items()
+    }
+
+
 async def dispatch_augmentation_and_stats(
     task_id: str,
     model_id: str,
@@ -50,8 +69,7 @@ async def dispatch_augmentation_and_stats(
     task_type,
     config: Config,
     reward_functions=None,
-    environment_name: str | None = None,
-    env_config: dict | None = None,
+    is_env_task: bool = False,
 ) -> ModelPrepResponse | None:
     """Dispatch augmentation and stats collection to a trainer with GPU.
 
@@ -81,10 +99,7 @@ async def dispatch_augmentation_and_stats(
         augmentation_config=augmentation_config,
         gpu_ids=gpu_ids,
         reward_functions=reward_functions,
-        environment_name=environment_name,
-        task_id_min=env_config.get("task_id_range", [0, 0])[0] if env_config else None,
-        task_id_max=env_config.get("task_id_range", [0, 0])[1] if env_config else None,
-        env_payload_extra=env_config.get("eval_payload_extra") if env_config else None,
+        env_configs=_build_env_configs() if is_env_task else None,
     )
 
     url = f"http://{trainer_ip_with_port}{MODEL_PREP_ENDPOINT}"

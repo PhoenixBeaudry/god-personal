@@ -1,6 +1,7 @@
 import os
 from datetime import date
 
+from core.constants import EnvironmentName
 from core.constants import GRPO_DEFAULT_FIELD_PROMPT
 from core.constants import NETUID
 from core.models.model_prep_models import AugmentationScope
@@ -364,55 +365,7 @@ ENV_SERVER_CMD_DEFAULT = "python -m uvicorn _affinetes.server:app --host 0.0.0.0
 BASILICA_GPU_MODELS = ["A100"]
 BASILICA_SGLANG_MIN_GPU_MEMORY_GB = 80
 
-ENVIRONMENTS = {
-    "alfworld": {
-        "task_id_range": (1, 2500),
-        "num_seeds": 100,
-        "env_image": "affinefoundation/agentgym:alfworld",
-        "eval_payload_extra": {"max_round": 30},
-    },
-    "goofspiel": {
-        "task_id_range": (0, 99999999),
-        "num_seeds": 2000,
-        "env_image": "diagonalge/openspiel:latest",
-        "eval_payload_extra": {"opponent": "random", "api_key": "dummy-key"},
-    },
-    "gin_rummy": {
-        "task_id_range": (300000000, 399999999),
-        "num_seeds": 1000,
-        "env_image": "diagonalge/mcts-api:latest",
-        "eval_payload_extra": {
-            "opponent": "mcts",
-            "mcts_max_simulations": 50,
-            "mcts_num_rollouts": 1,
-            "api_key": "dummy-key",
-        },
-    },
-    "liars_dice": {
-        "task_id_range": (100000000, 199999999),
-        "num_seeds": 10000,
-        "env_image": "diagonalge/mcts-api:latest",
-        "eval_payload_extra": {
-            "opponent": "mcts",
-            "mcts_max_simulations": 225,
-            "mcts_num_rollouts": 1,
-            "api_key": "dummy-key",
-        },
-    },
-    "leduc_poker": {
-        "task_id_range": (200000000, 299999999),
-        "num_seeds": 2000,
-        "env_image": "diagonalge/mcts-api:latest",
-        "eval_payload_extra": {
-            "opponent": "mcts",
-            "mcts_max_simulations": 50,
-            "mcts_num_rollouts": 1,
-            "api_key": "dummy-key",
-        },
-    },
-}
-
-DEFAULT_ENV = "gin_rummy"
+DEFAULT_ENV = EnvironmentName.GIN_RUMMY
 ENV_EVAL_DEFAULT_SEED = 42
 ENV_EVAL_NUM_SEEDS = 2000
 ENV_EVAL_TEMPERATURE = 0.0

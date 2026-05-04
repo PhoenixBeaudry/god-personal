@@ -142,6 +142,7 @@ async def model_prep(req: ModelPrepRequest) -> ModelPrepResponse:
         reward_functions=req.reward_functions,
         environment_name=req.environment_name,
         env_server_url=req.env_server_url,
+        env_server_image=req.env_server_image,
         num_episodes=req.num_episodes,
         task_id_min=req.task_id_min,
         task_id_max=req.task_id_max,

@@ -12,6 +12,7 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
+from core.constants import EnvironmentName
 from core.constants import YARN_VALID_FACTORS
 from core.models.model_prep_models import AugmentationConfig
 from core.models.utility_models import Backend
@@ -171,7 +172,7 @@ class EnvRawTask(RawTask):
     Environment task data as stored in the database. It expand the RawTask with fields from the EnvTask table.
     """
 
-    environment_name: str | None = None
+    environment_name: EnvironmentName | None = None
     eval_seed: int | None = None
     task_type: TaskType = TaskType.ENVIRONMENTTASK
     synthetic_data: str | None = None

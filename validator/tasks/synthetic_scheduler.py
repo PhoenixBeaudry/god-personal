@@ -14,6 +14,7 @@ import validator.core.constants as vcst
 from core.models.payload_models import ImageModelInfo
 from core.models.payload_models import ImageModelsResponse
 from core.models.payload_models import InstructTextDatasetColumnsResponse
+from core.constants import EnvironmentName
 from core.models.utility_models import FileFormat
 from core.models.utility_models import Message
 from core.models.utility_models import Prompts
@@ -451,7 +452,7 @@ async def create_synthetic_env_task(
     if force_environment:
         selected_environment = force_environment
     else:
-        game_candidates = ["gin_rummy", "liars_dice", "leduc_poker"]
+        game_candidates = [EnvironmentName.GIN_RUMMY, EnvironmentName.LIARS_DICE, EnvironmentName.LEDUC_POKER]
         if exclude_environments:
             game_candidates = [g for g in game_candidates if g not in exclude_environments]
         selected_environment = random.choice(game_candidates)

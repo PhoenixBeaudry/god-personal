@@ -9,6 +9,7 @@ from docker.errors import APIError
 from docker.errors import BuildError
 from docker.models.containers import Container
 
+import core.constants as core_cst
 import trainer.utils.training_paths as train_paths
 from core.models.payload_models import ModelPrepResponse
 from core.models.payload_models import TrainerProxyRequest
@@ -426,6 +427,7 @@ def run_model_prep_container(
     reward_functions=None,
     environment_name: str | None = None,
     env_server_url: str | None = None,
+    env_server_image: str | None = None,
     num_episodes: int = 50,
     task_id_min: int | None = None,
     task_id_max: int | None = None,
@@ -458,7 +460,7 @@ def run_model_prep_container(
         ensure_internal_network()
         loop = asyncio.new_event_loop()
         env_server_container = loop.run_until_complete(
-            run_environment_server_container(environment_name, log_labels or {})
+            run_environment_server_container(environment_name, log_labels or {}, image=env_server_image)
         )
         if env_server_container:
             loop.run_until_complete(asyncio.sleep(2))
@@ -561,25 +563,39 @@ def run_model_prep_container(
                 logger.warning(f"Failed to cleanup env server: {env_cleanup_err}", extra=log_labels)
 
 
-async def run_environment_server_container(environment_name: str, log_labels: dict) -> Container:
+FALLBACK_ENV_IMAGES: dict[str, str] = {
+    "goofspiel": "diagonalge/openspiel:latest",
+    "gin_rummy": core_cst.MCTS_API_DOCKER_IMAGE,
+    "liars_dice": core_cst.MCTS_API_DOCKER_IMAGE,
+    "leduc_poker": core_cst.MCTS_API_DOCKER_IMAGE,
+}
+
+
+async def run_environment_server_container(
+    environment_name: str,
+    log_labels: dict,
+    image: str | None = None,
+) -> Container | None:
     client = docker.from_env()
 
     ensure_internal_network()
 
-    container_name = f"environment-server-{uuid.uuid4().hex[:8]}"
-    logger.info(f"Starting env server container: {container_name}", extra=log_labels)
-    if environment_name in ["goofspiel", "gin_rummy", "liars_dice", "leduc_poker"]:
-        container = await asyncio.to_thread(
-            client.containers.run,
-            image="phoenixbeaudry/game:mcts-api",
-            name=container_name,
-            detach=True,
-            labels=log_labels,
-            network=cst.INTERNAL_BRIDGE_NAME,
-        )
-        return container
-    else:
+    resolved_image = image or FALLBACK_ENV_IMAGES.get(environment_name)
+    if resolved_image is None:
+        logger.warning(f"No image for environment '{environment_name}', cannot start sidecar")
         return None
+
+    container_name = f"environment-server-{uuid.uuid4().hex[:8]}"
+    logger.info(f"Starting env server container: {container_name} (image={resolved_image})", extra=log_labels)
+    container = await asyncio.to_thread(
+        client.containers.run,
+        image=resolved_image,
+        name=container_name,
+        detach=True,
+        labels=log_labels,
+        network=cst.INTERNAL_BRIDGE_NAME,
+    )
+    return container
 
 
 async def upload_repo_to_hf(

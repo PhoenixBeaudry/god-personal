@@ -1,5 +1,5 @@
 """
-Environment task stats: deploy model via SGLang, play episodes against env server.
+Environment task stats: deploy model via SGLang, play episodes against env servers.
 Self-contained — no validator imports. SGLang helpers inlined from eval_environment.py.
 """
 
@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import signal
+import socket
 import statistics
 import subprocess
 import time
@@ -15,6 +16,7 @@ import time
 import aiohttp
 
 from core.models.model_prep_models import EnvBaselineStats, EnvStats
+from core.constants import EnvironmentName
 from trainer.model_prep.stats import compute_weight_stats
 
 logger = logging.getLogger(__name__)
@@ -90,103 +92,135 @@ async def wait_for_health(
     raise TimeoutError(f"{service_name} at {url}{path} not healthy within {timeout_seconds}s")
 
 
-def _build_env_stats(environment_name: str, scores: list[float]) -> EnvStats:
+def _build_env_stats(scores: list[float]) -> EnvStats:
     if scores:
         return EnvStats(
-            environment_name=environment_name,
             num_episodes=len(scores),
-            episode_scores=scores,
             mean_score=statistics.mean(scores),
             std_score=statistics.stdev(scores) if len(scores) > 1 else 0.0,
             min_score=min(scores),
             max_score=max(scores),
             median_score=statistics.median(scores),
         )
-    return EnvStats(
-        environment_name=environment_name,
-        num_episodes=0,
-        episode_scores=[],
-    )
+    return EnvStats(num_episodes=0)
 
 
-# --- Episode playback ---
+async def _play_episodes(
+    session: aiohttp.ClientSession,
+    env_name: EnvironmentName,
+    env_server_url: str,
+    sglang_base_url: str,
+    model_name: str,
+    num_episodes: int,
+    task_id_min: int,
+    task_id_max: int,
+    eval_payload_extra: dict | None,
+) -> EnvStats:
+    """Play episodes against a single environment and return summary stats."""
+    seed_rng = random.Random(42)
+    scores: list[float] = []
+
+    print(f"  {env_name.value}: playing {num_episodes} episodes...", flush=True)
+
+    for i in range(num_episodes):
+        seed = seed_rng.randint(1, 1_000_000)
+        task_rng = random.Random(seed)
+        task_id = task_rng.randint(task_id_min + 1, task_id_max)
+
+        payload: dict = {
+            "model": model_name,
+            "base_url": sglang_base_url,
+            "task_id": task_id,
+            "temperature": ENV_EVAL_TEMPERATURE,
+            "seed": seed,
+        }
+        if eval_payload_extra:
+            payload.update(eval_payload_extra)
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=ENV_EVAL_TASK_TIMEOUT)
+            async with session.post(
+                f"{env_server_url}/evaluate", json=payload, timeout=timeout,
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    result = data.get("result", data)
+                    score = float(result.get("score", 0.0))
+                else:
+                    score = 0.0
+        except Exception as e:
+            print(f"  {env_name.value} episode {i+1}: error {e}", flush=True)
+            score = 0.0
+
+        scores.append(score)
+
+    stats = _build_env_stats(scores)
+    print(f"  {env_name.value}: {stats.num_episodes} episodes, mean={stats.mean_score:.3f}", flush=True)
+    return stats
+
+
+# --- Main entry point ---
 
 async def compute_env_stats(
     model_path: str,
     model,
-    environment_name: str,
-    env_server_url: str,
-    num_episodes: int = 50,
-    task_id_min: int = 0,
-    task_id_max: int = 99999999,
-    env_payload_extra: dict | None = None,
+    env_configs: dict[EnvironmentName, dict],
 ) -> EnvBaselineStats:
-    """Compute env stats: deploy model via SGLang, play episodes, collect scores."""
+    """Compute env stats: deploy model via SGLang, play episodes against all environments.
 
+    env_configs maps EnvironmentName to a dict with keys:
+        url: str           — env server URL on bridge network
+        task_id_min: int
+        task_id_max: int
+        num_episodes: int
+        eval_payload_extra: dict | None
+    """
     print("Computing weight stats...", flush=True)
     weight_stats = compute_weight_stats(model)
 
     sglang_cmd = build_sglang_command(model_path, seed=42)
     sglang_proc = start_process(sglang_cmd, "sglang")
     sglang_port = int(os.getenv("SGLANG_PORT", "30000"))
-    sglang_url = f"http://localhost:{sglang_port}"
+    sglang_local_url = f"http://localhost:{sglang_port}"
+    container_ip = socket.gethostbyname(socket.gethostname())
+    sglang_base_url = f"http://{container_ip}:{sglang_port}/v1"
+    model_name = os.path.basename(model_path)
+
+    all_stats: dict[EnvironmentName, EnvStats] = {}
 
     try:
-        await wait_for_health(sglang_url, "/v1/models", SGLANG_HEALTH_TIMEOUT, service_name="sglang")
+        await wait_for_health(sglang_local_url, "/v1/models", SGLANG_HEALTH_TIMEOUT, service_name="sglang")
 
-        seed_rng = random.Random(42)
-        scores = []
-
-        print(f"Playing {num_episodes} episodes against {environment_name}...", flush=True)
+        print(f"SGLang ready, base_url for env servers: {sglang_base_url}", flush=True)
+        print(f"Evaluating {len(env_configs)} environments...", flush=True)
 
         async with aiohttp.ClientSession() as session:
-            for i in range(num_episodes):
-                seed = seed_rng.randint(1, 1_000_000)
-                task_rng = random.Random(seed)
-                task_id = task_rng.randint(task_id_min + 1, task_id_max)
-
-                payload = {
-                    "model": os.path.basename(model_path),
-                    "base_url": f"{sglang_url}/v1",
-                    "task_id": task_id,
-                    "temperature": ENV_EVAL_TEMPERATURE,
-                    "seed": seed,
-                }
-                if env_payload_extra:
-                    payload.update(env_payload_extra)
-
-                try:
-                    timeout = aiohttp.ClientTimeout(total=ENV_EVAL_TASK_TIMEOUT)
-                    async with session.post(
-                        f"{env_server_url}/evaluate", json=payload, timeout=timeout,
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            result = data.get("result", data)
-                            score = float(result.get("score", 0.0))
-                        else:
-                            score = 0.0
-                except Exception as e:
-                    print(f"Episode {i+1}: error {e}", flush=True)
-                    score = 0.0
-
-                scores.append(score)
-                print(f"Episode {i+1}/{num_episodes}: score={score:.3f}", flush=True)
-
-        mean = statistics.mean(scores) if scores else 0.0
-        print(f"Done: {len(scores)} episodes, mean={mean:.3f}", flush=True)
-
-        return EnvBaselineStats(
-            weights=weight_stats,
-            env_stats=_build_env_stats(environment_name, scores),
-        )
+            for env_name, cfg in env_configs.items():
+                stats = await _play_episodes(
+                    session=session,
+                    env_name=env_name,
+                    env_server_url=cfg["url"],
+                    sglang_base_url=sglang_base_url,
+                    model_name=model_name,
+                    num_episodes=cfg["num_episodes"],
+                    task_id_min=cfg["task_id_min"],
+                    task_id_max=cfg["task_id_max"],
+                    eval_payload_extra=cfg.get("eval_payload_extra"),
+                )
+                all_stats[env_name] = stats
 
     except TimeoutError:
         print("SGLang failed to start within timeout", flush=True)
-        return EnvBaselineStats(
-            weights=weight_stats,
-            env_stats=_build_env_stats(environment_name, []),
-        )
 
     finally:
         stop_process(sglang_proc, "sglang")
+
+    # Fill in empty stats for any envs that weren't reached
+    for env_name in env_configs:
+        if env_name not in all_stats:
+            all_stats[env_name] = EnvStats(num_episodes=0)
+
+    return EnvBaselineStats(
+        weights=weight_stats,
+        env_stats=all_stats,
+    )

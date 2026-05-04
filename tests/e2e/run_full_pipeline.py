@@ -31,7 +31,6 @@ from core.models.model_prep_models import (
 )
 from core.models.utility_models import TaskType
 from validator.core.config import load_config
-from validator.core.constants import ENVIRONMENTS
 from validator.core.task_config_models import get_task_config
 from validator.db.sql import tasks as task_sql
 from validator.tasks.synthetic_scheduler import (
@@ -97,8 +96,7 @@ async def _prep_and_verify(task, config, task_type_label: str) -> dict:
         # Step 2: Model prep dispatch
         print(f"  Dispatching model prep to trainer...")
         reward_fns = getattr(task, "reward_functions", None)
-        env_name = getattr(task, "environment_name", None)
-        env_config = ENVIRONMENTS.get(env_name) if env_name else None
+        is_env_task = task.task_type == TaskType.ENVIRONMENTTASK
 
         prep_result = await dispatch_augmentation_and_stats(
             task_id=str(task.task_id),
@@ -109,8 +107,7 @@ async def _prep_and_verify(task, config, task_type_label: str) -> dict:
             task_type=task.task_type,
             config=config,
             reward_functions=reward_fns,
-            environment_name=env_name,
-            env_config=env_config,
+            is_env_task=is_env_task,
         )
 
         elapsed = time.time() - start

@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from core.constants import EnvironmentName
+
 
 class FileFormat(str, Enum):
     CSV = "csv"  # needs to be local file
@@ -104,7 +106,7 @@ class GrpoDatasetType(BaseModel):
 
 
 class EnvironmentDatasetType(BaseModel):
-    environment_name: str | None = None
+    environment_name: EnvironmentName | None = None
 
 
 class DpoDatasetType(BaseModel):
