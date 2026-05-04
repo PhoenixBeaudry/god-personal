@@ -1,3 +1,5 @@
+from core.constants import EnvironmentName
+
 MAX_TRAINING_ATTEMPTS = 2
 
 # Smart prioritization thresholds for task fetching
@@ -48,7 +50,7 @@ ENV_TOTAL_ROUNDS = 4
 ENV_FINAL_ROUND_TASK_COUNT = 3
 # If set, forces this game to be the boss (final) round task and excludes it from earlier rounds.
 # Set to None to let any game randomly be the boss round.
-FORCED_BOSS_ENVIRONMENT: str | None = None
+FORCED_BOSS_ENVIRONMENT: EnvironmentName | None = None
 
 TOURNAMENT_PARTICIPANT_PING_BATCH_SIZE = 50
 

@@ -434,8 +434,8 @@ async def create_synthetic_env_task(
     config: Config,
     models: AsyncGenerator[str, None],
     datasets: AsyncGenerator[Dataset, None],
-    exclude_environments: list[str] | None = None,
-    force_environment: str | None = None,
+    exclude_environments: list[EnvironmentName] | None = None,
+    force_environment: EnvironmentName | None = None,
 ) -> RawTask:
     # hardoced model for now. the model and ds generators kept for signature compatibility
     model_id = random.choice(SUPPORTED_ENV_MODELS)

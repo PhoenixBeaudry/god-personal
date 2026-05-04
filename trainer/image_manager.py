@@ -11,6 +11,8 @@ from docker.models.containers import Container
 
 import core.constants as core_cst
 import trainer.utils.training_paths as train_paths
+from core.constants import EnvironmentName
+from core.models.payload_models import EnvConfig
 from core.models.payload_models import ModelPrepResponse
 from core.models.payload_models import TrainerProxyRequest
 from core.models.payload_models import TrainRequestImage
@@ -417,6 +419,64 @@ def run_downloader_container(
                 logger.warning(f"Failed to remove container {container_name}: {cleanup_err}", extra=log_labels)
 
 
+def _start_env_sidecars(
+    env_configs: dict[EnvironmentName, EnvConfig],
+    log_labels: dict[str, str] | None,
+) -> tuple[dict[EnvironmentName, str], list[Container]]:
+    """Start one sidecar per unique env_image. Returns (env_name→url mapping, container list).
+
+    Multiple environments may share the same image (e.g. all MCTS games use mcts-api).
+    We start one container per unique image and map all environments using that image
+    to the same sidecar URL.
+    """
+    ensure_internal_network()
+    loop = asyncio.new_event_loop()
+
+    image_to_url: dict[str, str] = {}
+    containers: list[Container] = []
+
+    try:
+        for env_name, cfg in env_configs.items():
+            if cfg.env_image in image_to_url:
+                continue
+
+            container = loop.run_until_complete(
+                run_environment_server_container(env_name, log_labels or {}, image=cfg.env_image)
+            )
+            if container is None:
+                continue
+
+            containers.append(container)
+            ip = loop.run_until_complete(_resolve_container_ip(container))
+            url = f"http://{ip}:8000"
+            image_to_url[cfg.env_image] = url
+            logger.info(f"Env sidecar for {cfg.env_image}: {url}", extra=log_labels)
+    finally:
+        loop.close()
+
+    env_url_map: dict[EnvironmentName, str] = {}
+    for env_name, cfg in env_configs.items():
+        if cfg.env_image in image_to_url:
+            env_url_map[env_name] = image_to_url[cfg.env_image]
+
+    return env_url_map, containers
+
+
+async def _resolve_container_ip(container) -> str:
+    """Wait for a container to get an IP on the internal bridge network."""
+    await asyncio.sleep(2)
+    container.reload()
+    networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+    if cst.INTERNAL_BRIDGE_NAME in networks:
+        ip = networks[cst.INTERNAL_BRIDGE_NAME].get("IPAddress")
+        if ip:
+            return ip
+    ip = container.attrs.get("NetworkSettings", {}).get("IPAddress")
+    if ip:
+        return ip
+    raise RuntimeError("Could not resolve container IP on internal bridge")
+
+
 def run_model_prep_container(
     task_id: str,
     model_id: str,
@@ -425,19 +485,13 @@ def run_model_prep_container(
     augmentation_config=None,
     gpu_ids: list[int] = [0],
     reward_functions=None,
-    environment_name: str | None = None,
-    env_server_url: str | None = None,
-    env_server_image: str | None = None,
-    num_episodes: int = 50,
-    task_id_min: int | None = None,
-    task_id_max: int | None = None,
-    env_payload_extra: dict | None = None,
+    env_configs: dict[EnvironmentName, EnvConfig] | None = None,
     log_labels: dict[str, str] | None = None,
 ) -> ModelPrepResponse:
     """Run model prep container: augment model + compute baseline stats.
-    Downloads model to cache via downloader first. For env tasks, starts env server sidecar."""
+    Downloads model to cache via downloader first. For env tasks, starts env server sidecars."""
     client = docker.from_env()
-    env_server_container = None
+    env_containers: list[Container] = []
 
     # Download model to cache volume
     download_exit, download_err = run_downloader_container(
@@ -455,24 +509,20 @@ def run_model_prep_container(
     anonymous_model = get_anonymous_model_dir(model_id)
     model_cache_path = f"/cache/models/{anonymous_model}"
 
-    # For env tasks, start env server sidecar
-    if environment_name and not env_server_url:
-        ensure_internal_network()
-        loop = asyncio.new_event_loop()
-        env_server_container = loop.run_until_complete(
-            run_environment_server_container(environment_name, log_labels or {}, image=env_server_image)
-        )
-        if env_server_container:
-            loop.run_until_complete(asyncio.sleep(2))
-            env_server_container.reload()
-            networks = env_server_container.attrs.get("NetworkSettings", {}).get("Networks", {})
-            if cst.INTERNAL_BRIDGE_NAME in networks:
-                env_ip = networks[cst.INTERNAL_BRIDGE_NAME].get("IPAddress")
-            else:
-                env_ip = env_server_container.attrs.get("NetworkSettings", {}).get("IPAddress")
-            env_server_url = f"http://{env_ip}:8000"
-            logger.info(f"Env server sidecar started at {env_server_url}", extra=log_labels)
-        loop.close()
+    # For env tasks, start env server sidecars and build env_configs with URLs
+    env_configs_with_urls: dict[str, dict] | None = None
+    if env_configs:
+        env_url_map, env_containers = _start_env_sidecars(env_configs, log_labels)
+        env_configs_with_urls = {}
+        for env_name, cfg in env_configs.items():
+            if env_name in env_url_map:
+                env_configs_with_urls[env_name.value] = {
+                    "url": env_url_map[env_name],
+                    "task_id_min": cfg.task_id_min,
+                    "task_id_max": cfg.task_id_max,
+                    "num_episodes": cfg.num_episodes,
+                    "eval_payload_extra": cfg.eval_payload_extra,
+                }
 
     command = [
         "--model", model_cache_path,
@@ -491,18 +541,8 @@ def run_model_prep_container(
     if reward_functions:
         command += ["--reward-functions", json.dumps([rf.model_dump() if hasattr(rf, "model_dump") else rf for rf in reward_functions])]
 
-    if environment_name and env_server_url:
-        command += [
-            "--environment-name", environment_name,
-            "--env-server-url", env_server_url,
-            "--num-episodes", str(num_episodes),
-        ]
-        if task_id_min is not None:
-            command += ["--task-id-min", str(task_id_min)]
-        if task_id_max is not None:
-            command += ["--task-id-max", str(task_id_max)]
-        if env_payload_extra:
-            command += ["--env-payload-extra", json.dumps(env_payload_extra)]
+    if env_configs_with_urls:
+        command += ["--env-configs", json.dumps(env_configs_with_urls)]
 
     env = {
         "HUGGINGFACE_TOKEN": os.environ.get("HUGGINGFACE_TOKEN", ""),
@@ -515,7 +555,7 @@ def run_model_prep_container(
 
     try:
         logger.info(f"Starting model prep container: {container_name}", extra=log_labels)
-        network = cst.INTERNAL_BRIDGE_NAME if environment_name else None
+        network = cst.INTERNAL_BRIDGE_NAME if env_configs else None
         container = client.containers.run(
             image=cst.MODEL_PREP_DOCKER_IMAGE,
             name=container_name,
@@ -554,13 +594,14 @@ def run_model_prep_container(
                 container.remove(force=True)
             except Exception as cleanup_err:
                 logger.warning(f"Failed to remove container {container_name}: {cleanup_err}", extra=log_labels)
-        if env_server_container:
+        for sidecar in env_containers:
             try:
-                env_server_container.stop()
-                env_server_container.remove(force=True)
-                logger.info("Env server sidecar cleaned up", extra=log_labels)
+                sidecar.stop()
+                sidecar.remove(force=True)
             except Exception as env_cleanup_err:
-                logger.warning(f"Failed to cleanup env server: {env_cleanup_err}", extra=log_labels)
+                logger.warning(f"Failed to cleanup env sidecar: {env_cleanup_err}", extra=log_labels)
+        if env_containers:
+            logger.info(f"Cleaned up {len(env_containers)} env sidecars", extra=log_labels)
 
 
 FALLBACK_ENV_IMAGES: dict[str, str] = {
@@ -572,7 +613,7 @@ FALLBACK_ENV_IMAGES: dict[str, str] = {
 
 
 async def run_environment_server_container(
-    environment_name: str,
+    environment_name: str | core_cst.EnvironmentName,
     log_labels: dict,
     image: str | None = None,
 ) -> Container | None:
