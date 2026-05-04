@@ -4,9 +4,13 @@ Per-type stats models for instruct, DPO, GRPO tasks.
 """
 
 from enum import Enum
+from typing import Annotated
+from typing import Literal
 from typing import Union
 
 from pydantic import BaseModel
+from pydantic import Discriminator
+from pydantic import Tag
 
 from core.constants import EnvironmentName
 
@@ -123,21 +127,21 @@ class GrpoTrainingDynamics(TrainingDynamicsBase):
 # --- Per-type baseline stats ---
 
 class InstructBaselineStats(BaseModel):
-    task_type: str = "instruct"
+    task_type: Literal["instruct"] = "instruct"
     dataset: InstructDatasetStats
     weights: WeightStats
     training: InstructTrainingDynamics
 
 
 class DpoBaselineStats(BaseModel):
-    task_type: str = "dpo"
+    task_type: Literal["dpo"] = "dpo"
     dataset: DpoDatasetStats
     weights: WeightStats
     training: DpoTrainingDynamics
 
 
 class GrpoBaselineStats(BaseModel):
-    task_type: str = "grpo"
+    task_type: Literal["grpo"] = "grpo"
     dataset: GrpoDatasetStats
     weights: WeightStats
     training: GrpoTrainingDynamics
@@ -155,9 +159,23 @@ class EnvStats(BaseModel):
 
 
 class EnvBaselineStats(BaseModel):
-    task_type: str = "env"
+    task_type: Literal["env"] = "env"
     weights: WeightStats
     env_stats: dict[EnvironmentName, EnvStats]
 
 
-BaselineStats = Union[InstructBaselineStats, DpoBaselineStats, GrpoBaselineStats, EnvBaselineStats]
+def _baseline_stats_discriminator(v) -> str:
+    if isinstance(v, dict):
+        return v.get("task_type", "instruct")
+    return getattr(v, "task_type", "instruct")
+
+
+BaselineStats = Annotated[
+    Union[
+        Annotated[InstructBaselineStats, Tag("instruct")],
+        Annotated[DpoBaselineStats, Tag("dpo")],
+        Annotated[GrpoBaselineStats, Tag("grpo")],
+        Annotated[EnvBaselineStats, Tag("env")],
+    ],
+    Discriminator(_baseline_stats_discriminator),
+]

@@ -604,16 +604,15 @@ def run_model_prep_container(
             logger.info(f"Cleaned up {len(env_containers)} env sidecars", extra=log_labels)
 
 
-FALLBACK_ENV_IMAGES: dict[str, str] = {
-    "goofspiel": "diagonalge/openspiel:latest",
-    "gin_rummy": core_cst.MCTS_API_DOCKER_IMAGE,
-    "liars_dice": core_cst.MCTS_API_DOCKER_IMAGE,
-    "leduc_poker": core_cst.MCTS_API_DOCKER_IMAGE,
+FALLBACK_ENV_IMAGES: dict[core_cst.EnvironmentName, str] = {
+    core_cst.EnvironmentName.GIN_RUMMY: core_cst.MCTS_API_DOCKER_IMAGE,
+    core_cst.EnvironmentName.LIARS_DICE: core_cst.MCTS_API_DOCKER_IMAGE,
+    core_cst.EnvironmentName.LEDUC_POKER: core_cst.MCTS_API_DOCKER_IMAGE,
 }
 
 
 async def run_environment_server_container(
-    environment_name: str | core_cst.EnvironmentName,
+    environment_name: core_cst.EnvironmentName,
     log_labels: dict,
     image: str | None = None,
 ) -> Container | None:
