@@ -20,7 +20,7 @@ AGENT_TYPE = ""              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
 EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
-TASK_ID_MAX = 100000         # adjust to match the # of tasks available in the cache
+TASK_ID_MAX = 100         # adjust to match the # of tasks available in the cache
 
 ENV_EVAL_MAX_CONCURRENT_REQUESTS = 1
 NUM_ENV_SERVERS = 1
