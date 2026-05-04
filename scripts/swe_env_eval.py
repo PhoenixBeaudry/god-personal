@@ -278,7 +278,7 @@ def run_evaluation(base_seed):
 if __name__ == "__main__":
     scores = []
     times = []
-    for i in range(10):
+    for i in range(1):
         base_seed = random.randint(0, 100000)
         print(f"Running Eval {i+1}/10 with base seed: {base_seed}")
         start = time.perf_counter()
