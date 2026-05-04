@@ -520,7 +520,7 @@ def run_model_prep_container(
             command=command,
             labels=log_labels,
             environment=env,
-            volumes={cst.VOLUME_NAMES[1]: {"bind": "/cache", "mode": "rw"}},
+            volumes={cst.CACHE_VOLUME_NAME: {"bind": "/cache", "mode": "rw"}},
             device_requests=[docker.types.DeviceRequest(
                 device_ids=[str(i) for i in gpu_ids],
                 capabilities=[["gpu"]],
