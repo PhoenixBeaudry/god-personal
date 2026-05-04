@@ -71,6 +71,8 @@ def run_evaluation(base_seed):
                 "--enable-lora --lora-paths trained_lora=/lora/trained_lora "
                 "--lora-backend triton --max-lora-rank 64 "
                 "--host 0.0.0.0 --port 30000 --dp-size 2 --dtype bfloat16 "
+                "--context-length 131072 "
+                "--json-model-override-args '{\"rope_scaling\":{\"rope_type\":\"yarn\",\"type\":\"yarn\",\"factor\":4.0,\"original_max_position_embeddings\":32768}}' "
                 f"--random-seed {RANDOM_SEED}"
             )
         else:
@@ -79,6 +81,8 @@ def run_evaluation(base_seed):
                 f"python3 -m sglang.launch_server --model-path {BASE_MODEL_NAME} "
                 f"{'--revision ' + BASE_MODEL_REVISION if BASE_MODEL_REVISION else ''} "
                 "--host 0.0.0.0 --port 30000 --dp-size 2 --dtype bfloat16 "
+                "--context-length 131072 "
+                "--json-model-override-args '{\"rope_scaling\":{\"rope_type\":\"yarn\",\"type\":\"yarn\",\"factor\":4.0,\"original_max_position_embeddings\":32768}}' "
                 f"--random-seed {RANDOM_SEED}"
             )
 
