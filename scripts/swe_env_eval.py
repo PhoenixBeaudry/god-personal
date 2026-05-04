@@ -102,6 +102,7 @@ def run_evaluation(base_seed):
                 "PYTHONHASHSEED": str(RANDOM_SEED),
                 "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
                 "NVIDIA_TF32_OVERRIDE": "0",
+                "SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN": "1",
             },
             volumes={
                 HF_CACHE_DIR: {"bind": "/hf", "mode": "rw"},
