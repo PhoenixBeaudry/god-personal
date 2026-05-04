@@ -14,7 +14,7 @@ LORA_MODEL_REVISION = None
 LOCAL_LORA_PATH = None
 
 # --- Evaluation Configuration ---
-NUM_EVALS = 40
+NUM_EVALS = 25
 TEMPERATURE = 0.0
 AGENT_TYPE = "miniswe"              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
