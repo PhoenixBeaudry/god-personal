@@ -7,9 +7,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-14B-Instruct"
 BASE_MODEL_REVISION = None
-LORA_MODEL_NAME = "gradients-io-tournaments/swe-test-6hr-4xh100-test-2" # Put the name of your repo containing the LORA here
+LORA_MODEL_NAME = None # Put the name of your repo containing the LORA here
 LORA_MODEL_REVISION = None
 LOCAL_LORA_PATH = None
 
