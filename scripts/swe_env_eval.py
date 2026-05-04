@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-14B-Instruct"
+BASE_MODEL_NAME = "lmsys/vicuna-13b-v1.5"
 BASE_MODEL_REVISION = None
 LORA_MODEL_NAME = None # Put the name of your repo containing the LORA here
 LORA_MODEL_REVISION = None
