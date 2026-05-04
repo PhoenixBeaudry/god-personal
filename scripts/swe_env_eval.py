@@ -16,7 +16,7 @@ LOCAL_LORA_PATH = None
 # --- Evaluation Configuration ---
 NUM_EVALS = 10
 TEMPERATURE = 0.0
-AGENT_TYPE = ""              # "miniswe", "codex", or "" for auto-select
+AGENT_TYPE = "miniswe"              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
 EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
