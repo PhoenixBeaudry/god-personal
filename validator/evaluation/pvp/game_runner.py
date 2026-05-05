@@ -194,7 +194,10 @@ def _evaluate_with_timeout(
     bots: list[LLMBot | None],
     seed: int,
 ) -> list[float]:
-    """Run evaluate_bots with a timeout to prevent hangs."""
+    """Run evaluate_bots with a timeout to prevent hangs.
+
+    Uses SIGALRM — must be called from the main thread.
+    """
 
     def _timeout_handler(signum: int, frame: object) -> None:
         raise TimeoutError(f"Game exceeded {vcst.PVP_GAME_TIMEOUT_SECONDS}s timeout")

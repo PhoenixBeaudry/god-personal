@@ -204,7 +204,7 @@ class LeducPokerAgent(BaseGameAgent):
 
     @staticmethod
     def _card_name(card_id: int) -> str:
-        ranks = ["J", "Q", "K", "A"]
+        ranks = ["J", "Q", "K", "A"]  # A used only in 3+ player variants
         suits = ["\u2660", "\u2665"]
         rank_idx = card_id // 2
         suit_idx = card_id % 2

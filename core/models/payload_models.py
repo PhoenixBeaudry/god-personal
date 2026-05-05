@@ -147,7 +147,7 @@ class ModelPrepRequest(BaseModel):
     task_id: str
     model_id: str
     training_data_url: str
-    task_type: str = "instruct"
+    task_type: str = TaskType.INSTRUCTTEXTTASK.value
     augmentation_config: AugmentationConfig | None = None
     gpu_ids: list[int] = [0]
     reward_functions: list[RewardFunction] | None = None

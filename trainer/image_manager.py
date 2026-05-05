@@ -481,7 +481,7 @@ def run_model_prep_container(
     task_id: str,
     model_id: str,
     training_data_url: str,
-    task_type: str = "instruct",
+    task_type: TaskType = TaskType.INSTRUCTTEXTTASK,
     augmentation_config=None,
     gpu_ids: list[int] = [0],
     reward_functions=None,
