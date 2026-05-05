@@ -25,8 +25,6 @@ from core.models.pvp_models import (
 )
 from validator.core import constants as vcst
 from validator.evaluation.eval_environment import (
-    _build_sglang_command,
-    _start_process,
     _stop_process,
     _wait_for_health,
 )
@@ -128,13 +126,38 @@ def _run(config: PvPEvalConfig) -> PvPEvalResults:
         _stop_process(sglang_b, "sglang-b")
 
 
+def _build_sglang_command(model_path: str, port: int, seed: int) -> str:
+    """Build SGLang launch command with explicit port."""
+    tensor_parallel = os.getenv("SGLANG_TENSOR_PARALLEL_SIZE", "1")
+    dtype = os.getenv("SGLANG_DTYPE", "float16")
+    extra = (os.getenv("SGLANG_ENV_EVAL_EXTRA_CLI") or vcst.SGLANG_ENV_EVAL_EXTRA_CLI).strip()
+
+    cmd = (
+        "python3 -m sglang.launch_server "
+        f"--model-path {model_path} "
+        f"--host 0.0.0.0 --port {port} "
+        f"--tensor-parallel-size {tensor_parallel} "
+        f"--dtype {dtype} "
+        f"--enable-deterministic-inference --random-seed {seed}"
+    )
+    return f"{cmd} {extra}" if extra else cmd
+
+
 def _start_sglang(model_path: str, gpu_id: int, port: int) -> subprocess.Popen:
     """Start an SGLang server on the specified GPU and port."""
-    cmd = _build_sglang_command(model_path, seed=42)
-    cmd = cmd.replace(f"--port {vcst.PVP_SGLANG_PORT_A}", f"--port {port}")
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    cmd = _build_sglang_command(model_path, port=port, seed=42)
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
     logger.info("Starting SGLang on GPU %d port %d", gpu_id, port)
-    return _start_process(cmd, f"sglang-gpu{gpu_id}")
+    return subprocess.Popen(
+        cmd,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        preexec_fn=os.setsid,
+        env=env,
+    )
 
 
 async def _wait_for_servers(port_a: int, port_b: int) -> None:

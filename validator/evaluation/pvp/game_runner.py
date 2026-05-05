@@ -4,7 +4,6 @@ Drives OpenSpiel's evaluate_bots with two LLMBots, one per model.
 Each seed is played twice with swapped positions for fairness.
 """
 
-import concurrent.futures
 import functools
 import logging
 import random
@@ -103,25 +102,19 @@ def _execute_matchup(
     agent: BaseGameAgent,
 ) -> PvPEnvironmentResult:
     """Play all game instances and tally results."""
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=vcst.PVP_EXECUTOR_MAX_WORKERS)
-    play = functools.partial(
-        _play_game, config_a=config_a, config_b=config_b, agent=agent, executor=executor
-    )
+    play = functools.partial(_play_game, config_a=config_a, config_b=config_b, agent=agent)
 
     result = PvPEnvironmentResult()
-    try:
-        for i, instance in enumerate(instances):
-            outcome = play(instance)
-            _tally(result, outcome)
+    for i, instance in enumerate(instances):
+        outcome = play(instance)
+        _tally(result, outcome)
 
-            if (i + 1) % vcst.PVP_LOG_INTERVAL_GAMES == 0:
-                logger.info(
-                    "%s: %d/%d games, a=%d b=%d draws=%d",
-                    env_name.value, i + 1, len(instances),
-                    result.model_a_wins, result.model_b_wins, result.draws,
-                )
-    finally:
-        executor.shutdown(wait=False)
+        if (i + 1) % vcst.PVP_LOG_INTERVAL_GAMES == 0:
+            logger.info(
+                "%s: %d/%d games, a=%d b=%d draws=%d",
+                env_name.value, i + 1, len(instances),
+                result.model_a_wins, result.model_b_wins, result.draws,
+            )
 
     logger.info(
         "%s complete: %d games, a=%d b=%d draws=%d",
@@ -136,7 +129,6 @@ def _play_game(
     config_a: ChatCompletionConfig,
     config_b: ChatCompletionConfig,
     agent: BaseGameAgent,
-    executor: concurrent.futures.ThreadPoolExecutor,
 ) -> GameOutcome:
     """Play a single game and return outcome from model_a's perspective."""
     game = pyspiel.load_game(instance.game_name, instance.game_params)
@@ -148,7 +140,6 @@ def _play_game(
         config=config_a,
         agent=agent,
         rng_seed=instance.seed,
-        executor=executor,
     )
     bot_b = LLMBot(
         game=game,
@@ -156,7 +147,6 @@ def _play_game(
         config=config_b,
         agent=agent,
         rng_seed=instance.seed + 1,
-        executor=executor,
     )
 
     bots = [None, None]

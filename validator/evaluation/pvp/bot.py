@@ -2,17 +2,16 @@
 
 Wraps an LLM inference endpoint as a pyspiel.Bot, maintaining
 conversation history and parsing actions from model responses.
+Uses synchronous OpenAI client since evaluate_bots is synchronous.
 """
 
-import asyncio
-import concurrent.futures
 import logging
 import re
 
 import numpy as np
 import pyspiel
 
-from core.models.pvp_models import ChatCompletionConfig, ChatMessage, ChatResult
+from core.models.pvp_models import ChatCompletionConfig, ChatMessage
 from validator.core import constants as vcst
 from validator.evaluation.pvp.agents import BaseGameAgent
 from validator.evaluation.pvp.chat import chat_completion
@@ -35,7 +34,6 @@ class LLMBot(pyspiel.Bot):
         config: ChatCompletionConfig,
         agent: BaseGameAgent,
         rng_seed: int,
-        executor: concurrent.futures.ThreadPoolExecutor,
     ):
         pyspiel.Bot.__init__(self)
         self._game = game
@@ -43,7 +41,6 @@ class LLMBot(pyspiel.Bot):
         self._config = config
         self._agent = agent
         self._rng = np.random.RandomState(rng_seed)
-        self._executor = executor
         self._conversation: list[ChatMessage] = []
         self._system_prompt_set = False
 
@@ -69,17 +66,13 @@ class LLMBot(pyspiel.Bot):
         self._conversation.append(ChatMessage(role="user", content=user_prompt))
 
         for attempt in range(vcst.PVP_BOT_MAX_PARSING_RETRIES + 1):
-            result = self._call_llm()
+            result = chat_completion(self._config, self._conversation)
 
             if result.content is None:
-                self._conversation.append(
-                    ChatMessage(role="assistant", content="")
-                )
+                self._conversation.append(ChatMessage(role="assistant", content=""))
                 continue
 
-            self._conversation.append(
-                ChatMessage(role="assistant", content=result.content)
-            )
+            self._conversation.append(ChatMessage(role="assistant", content=result.content))
 
             parsed_action = _parse_action(result.content, legal_actions)
             if parsed_action is not None:
@@ -91,28 +84,11 @@ class LLMBot(pyspiel.Bot):
             )
             self._conversation.append(ChatMessage(role="user", content=retry_msg))
 
-        # All retries exhausted — fall back to random legal action
         logger.warning(
             "LLM failed to produce valid action after %d attempts, using random fallback",
             vcst.PVP_BOT_MAX_PARSING_RETRIES + 1,
         )
         return int(self._rng.choice(legal_actions))
-
-    def _call_llm(self) -> ChatResult:
-        """Call the LLM synchronously via thread pool (evaluate_bots runs in a thread)."""
-
-        async def _run() -> ChatResult:
-            return await chat_completion(self._config, self._conversation)
-
-        def _run_in_loop() -> ChatResult:
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(_run())
-            finally:
-                loop.close()
-
-        future = self._executor.submit(_run_in_loop)
-        return future.result()
 
 
 def _parse_action(response: str, legal_actions: list[int]) -> int | None:
@@ -124,14 +100,12 @@ def _parse_action(response: str, legal_actions: list[int]) -> int | None:
     """
     cleaned = response.strip()
 
-    # Strategy 1: pure number
     match = re.match(r"^\s*(\d+)\s*$", cleaned)
     if match:
         action = int(match.group(1))
         if action in legal_actions:
             return action
 
-    # Strategy 2: first legal action ID found in text
     for action in legal_actions:
         if re.search(rf"\b{action}\b", cleaned):
             return action

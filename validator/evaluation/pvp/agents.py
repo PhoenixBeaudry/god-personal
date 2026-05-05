@@ -4,6 +4,7 @@ Each agent provides state formatting and parameter generation for its game.
 Rules text is loaded from core/config/pvp_game_prompts.yml.
 """
 
+import functools
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -12,15 +13,12 @@ import pyspiel
 import yaml
 
 _PROMPTS_PATH = Path(__file__).resolve().parents[3] / "core" / "config" / "pvp_game_prompts.yml"
-_prompts: dict[str, str] = {}
 
 
+@functools.cache
 def load_prompts() -> dict[str, str]:
-    global _prompts
-    if not _prompts:
-        with open(_PROMPTS_PATH) as f:
-            _prompts = yaml.safe_load(f)
-    return _prompts
+    with open(_PROMPTS_PATH) as f:
+        return yaml.safe_load(f)
 
 
 class BaseGameAgent(ABC):
