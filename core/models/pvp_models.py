@@ -76,14 +76,27 @@ class PvPMatchupConfig(BaseModel):
     )
 
 
+class PvPMode(str, Enum):
+    """Evaluation mode: single pair or round-robin group."""
+
+    PAIR = "pair"
+    GROUP = "group"
+
+
 class PvPEvalConfig(PvPBaseModel):
     """Top-level input configuration for a PvP evaluation run.
 
     Loaded from PVP_EVAL_CONFIG env var or /config/pvp_eval.json.
+    mode determines whether this is a pair or group evaluation.
     """
 
-    model_a: PvPModelSpec
-    model_b: PvPModelSpec
+    mode: PvPMode = Field(default=PvPMode.PAIR)
+    model_a: PvPModelSpec | None = Field(default=None, description="Pair mode: first model")
+    model_b: PvPModelSpec | None = Field(default=None, description="Pair mode: second model")
+    models: list[PvPGroupModelSpec] | None = Field(default=None, min_length=2, description="Group mode: models to compete")
+    base_model: str | None = Field(default=None, description="Group mode: shared base model")
+    gpu_ids: list[int] = Field(default=[0, 1], min_length=2, max_length=2)
+    ports: list[int] = Field(default=[30000, 30001], min_length=2, max_length=2)
     matchups: dict[EnvironmentName, PvPMatchupConfig] = Field(
         description="Map of environment name to matchup configuration"
     )
@@ -151,9 +164,37 @@ class PvPEvalMetadata(BaseModel):
 
 
 class PvPEvalResults(PvPBaseModel):
-    """Complete output of a PvP evaluation run."""
+    """Complete output of a PvP evaluation run (single pair)."""
 
     model_a: str
     model_b: str
     results: dict[EnvironmentName, PvPEnvironmentResult]
+    metadata: PvPEvalMetadata
+
+
+# --- Group evaluation models ---
+
+
+class PvPGroupModelSpec(BaseModel):
+    """A model in a group evaluation. All must share the same base model."""
+
+    repo: str = Field(description="HuggingFace model repository")
+    hotkey: str = Field(description="Miner hotkey identifier")
+
+
+
+class PvPPairResult(PvPBaseModel):
+    """Result for one pair within a group evaluation."""
+
+    hotkey_a: str
+    hotkey_b: str
+    results: dict[EnvironmentName, PvPEnvironmentResult]
+
+
+class PvPGroupResults(PvPBaseModel):
+    """Complete output of a group round-robin evaluation."""
+
+    base_model: str
+    hotkeys: list[str]
+    pair_results: list[PvPPairResult]
     metadata: PvPEvalMetadata

@@ -22,11 +22,14 @@ from core.models.pvp_models import (
     PvPEvalConfig,
     PvPEvalMetadata,
     PvPEvalResults,
+    PvPGroupResults,
+    PvPMode,
     PvPModelSpec,
 )
 from validator.core import constants as vcst
 from validator.evaluation.utils import check_for_lora, configure_eval_logging, stop_process
 from validator.evaluation.pvp.game_runner import Player, create_player, run_matchup
+from validator.evaluation.pvp.group import run_group_evaluation
 from validator.evaluation.pvp.server import start_sglang, wait_for_servers
 
 logger = logging.getLogger(__name__)
@@ -36,7 +39,10 @@ def main() -> int:
     configure_eval_logging()
     try:
         config = _load_config()
-        results = _run_evaluation(config)
+        if config.mode == PvPMode.GROUP:
+            results = run_group_evaluation(config)
+        else:
+            results = _run_evaluation(config)
         _write_results(results)
         return 0
     except Exception as exc:
@@ -47,16 +53,17 @@ def main() -> int:
 def _load_config() -> PvPEvalConfig:
     """Load config from env var or mounted file."""
     config_raw = os.getenv(vcst.PVP_CONFIG_ENV_VAR)
-    if config_raw:
-        return PvPEvalConfig.model_validate_json(config_raw)
+    if not config_raw:
+        config_path = Path(vcst.PVP_CONFIG_PATH)
+        if config_path.exists():
+            config_raw = config_path.read_text()
 
-    config_path = Path(vcst.PVP_CONFIG_PATH)
-    if config_path.exists():
-        return PvPEvalConfig.model_validate_json(config_path.read_text())
+    if not config_raw:
+        raise ValueError(
+            f"No config found. Set {vcst.PVP_CONFIG_ENV_VAR} env var or mount {vcst.PVP_CONFIG_PATH}"
+        )
 
-    raise ValueError(
-        f"No config found. Set {vcst.PVP_CONFIG_ENV_VAR} env var or mount {vcst.PVP_CONFIG_PATH}"
-    )
+    return PvPEvalConfig.model_validate_json(config_raw)
 
 
 def _resolve_spec(spec: PvPModelSpec, default_gpu: int, default_port: int) -> tuple[int, int]:
@@ -99,14 +106,19 @@ def _build_chat_config(port: int, eval_config: PvPEvalConfig, inference_name: st
 
 
 def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
-    """Start servers, run all matchups, return results."""
+    """Start servers, run pair matchups, return results."""
+    if config.model_a is None or config.model_b is None:
+        raise ValueError("Pair mode requires model_a and model_b")
+
     start_time = time.time()
+    model_a = config.model_a
+    model_b = config.model_b
 
-    gpu_a, port_a = _resolve_spec(config.model_a, default_gpu=0, default_port=vcst.PVP_SGLANG_PORT_A)
-    gpu_b, port_b = _resolve_spec(config.model_b, default_gpu=1, default_port=vcst.PVP_SGLANG_PORT_B)
+    gpu_a, port_a = _resolve_spec(model_a, default_gpu=0, default_port=vcst.PVP_SGLANG_PORT_A)
+    gpu_b, port_b = _resolve_spec(model_b, default_gpu=1, default_port=vcst.PVP_SGLANG_PORT_B)
 
-    prepared_a = _prepare_model(config.model_a, "a")
-    prepared_b = _prepare_model(config.model_b, "b")
+    prepared_a = _prepare_model(model_a, "a")
+    prepared_b = _prepare_model(model_b, "b")
 
     sglang_a: subprocess.Popen | None = None
     sglang_b: subprocess.Popen | None = None
@@ -136,8 +148,8 @@ def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
             )
 
         return PvPEvalResults(
-            model_a=config.model_a.repo,
-            model_b=config.model_b.repo,
+            model_a=model_a.repo,
+            model_b=model_b.repo,
             results=env_results,
             metadata=PvPEvalMetadata(
                 seed=config.seed,
@@ -154,7 +166,7 @@ def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
         stop_process(sglang_b, "sglang-b")
 
 
-def _write_results(results: PvPEvalResults) -> None:
+def _write_results(results: PvPEvalResults | PvPGroupResults) -> None:
     results_path = Path(os.getenv("PVP_RESULTS_PATH", vcst.PVP_RESULTS_PATH))
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(results.model_dump_json(indent=2))
