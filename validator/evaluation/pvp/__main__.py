@@ -79,10 +79,15 @@ def _resolve_spec(spec: PvPModelSpec, default_gpu: int, default_port: int) -> tu
     return gpu, port
 
 
-def _build_chat_config(port: int, eval_config: PvPEvalConfig, model_name: str) -> ChatCompletionConfig:
-    """Construct ChatCompletionConfig from resolved port and eval settings."""
+def _build_chat_config(port: int, eval_config: PvPEvalConfig, inference_model_name: str) -> ChatCompletionConfig:
+    """Construct ChatCompletionConfig from resolved port and eval settings.
+
+    inference_model_name follows the existing eval convention: repo string for
+    full weights/merged LoRA, or "base:lora_name" for native LoRA.
+    SGLang accepts any model name when only one model is loaded.
+    """
     return ChatCompletionConfig(
-        model=model_name,
+        model=inference_model_name,
         base_url=f"http://{vcst.PVP_SGLANG_HOST}:{port}{vcst.PVP_SGLANG_API_PATH}",
         temperature=eval_config.temperature,
         seed=eval_config.seed,
@@ -110,8 +115,8 @@ def _run(config: PvPEvalConfig) -> PvPEvalResults:
         sglang_b = _start_sglang(model_path_b, gpu_b, port_b, config.seed + 1, sglang_extra_b)
         asyncio.run(_wait_for_servers(port_a, port_b))
 
-        config_a = _build_chat_config(port_a, config, model_name_a)
-        config_b = _build_chat_config(port_b, config, model_name_b)
+        config_a = _build_chat_config(port_a, config, model_path_a)
+        config_b = _build_chat_config(port_b, config, model_path_b)
 
         player_a = Player(client=create_client(config_a), config=config_a)
         player_b = Player(client=create_client(config_b), config=config_b)

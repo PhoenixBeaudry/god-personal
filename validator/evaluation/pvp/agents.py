@@ -52,7 +52,10 @@ class BaseGameAgent(ABC):
         try:
             return state.information_state_string(player_id)
         except (RuntimeError, AttributeError):
-            return str(state)
+            raise ValueError(
+                f"Game {self.game_name} supports neither observation_string nor "
+                f"information_state_string — override format_state() for this game"
+            )
 
     def generate_system_prompt(self) -> str:
         prompts = load_prompts()

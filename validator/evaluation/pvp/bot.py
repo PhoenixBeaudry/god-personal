@@ -12,7 +12,7 @@ import numpy as np
 import openai
 import pyspiel
 
-from core.models.pvp_models import ChatCompletionConfig, ChatMessage
+from core.models.pvp_models import ChatCompletionConfig, ChatMessage, ChatRole
 from validator.core import constants as vcst
 from validator.evaluation.pvp.agents import BaseGameAgent
 from validator.evaluation.pvp.chat import chat_completion
@@ -61,37 +61,37 @@ class LLMBot(pyspiel.Bot):
         """
         if not self._system_prompt_set:
             system_prompt = self._agent.generate_system_prompt()
-            self._conversation.append(ChatMessage(role="system", content=system_prompt))
+            self._conversation.append(ChatMessage(role=ChatRole.SYSTEM, content=system_prompt))
             self._system_prompt_set = True
 
         legal_actions = state.legal_actions(self._player_id)
         user_prompt = self._agent.generate_user_prompt(state, self._player_id, legal_actions)
-        self._conversation.append(ChatMessage(role="user", content=user_prompt))
+        self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))
 
         for attempt in range(vcst.PVP_BOT_MAX_PARSING_RETRIES + 1):
             result = chat_completion(self._client, self._config, self._conversation)
 
-            if result.content is None:
-                self._conversation.append(ChatMessage(role="assistant", content=""))
-                continue
+            response_text = result.content or ""
+            self._conversation.append(ChatMessage(role=ChatRole.ASSISTANT, content=response_text))
 
-            self._conversation.append(ChatMessage(role="assistant", content=result.content))
-
-            parsed_action = _parse_action(result.content, legal_actions)
-            if parsed_action is not None:
-                return parsed_action
+            if response_text:
+                parsed_action = _parse_action(response_text, legal_actions)
+                if parsed_action is not None:
+                    return parsed_action
 
             retry_msg = (
                 f"Invalid response. Respond with ONLY the action ID number. "
                 f"Attempt {attempt + 1}/{vcst.PVP_BOT_MAX_PARSING_RETRIES + 1}."
             )
-            self._conversation.append(ChatMessage(role="user", content=retry_msg))
+            self._conversation.append(ChatMessage(role=ChatRole.USER, content=retry_msg))
 
+        fallback = int(self._rng.choice(legal_actions))
         logger.warning(
-            "LLM failed to produce valid action after %d attempts, using random fallback",
-            vcst.PVP_BOT_MAX_PARSING_RETRIES + 1,
+            "LLM failed to produce valid action after %d attempts, falling back to %d",
+            vcst.PVP_BOT_MAX_PARSING_RETRIES + 1, fallback,
         )
-        return int(self._rng.choice(legal_actions))
+        self._conversation.append(ChatMessage(role=ChatRole.ASSISTANT, content=str(fallback)))
+        return fallback
 
 
 def _parse_action(response: str, legal_actions: list[int]) -> int | None:

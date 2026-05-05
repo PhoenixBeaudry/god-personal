@@ -91,11 +91,19 @@ class PvPEnvironmentResult(BaseModel):
     total_games: int = 0
 
 
+class ChatRole(str, Enum):
+    """OpenAI-compatible message roles."""
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
 class ChatMessage(BaseModel):
     """A single message in an OpenAI-compatible conversation."""
 
-    role: str = Field(description="Message role: system, user, or assistant")
-    content: str = Field(description="Message content text")
+    role: ChatRole
+    content: str
 
 
 class ChatCompletionConfig(BaseModel):
