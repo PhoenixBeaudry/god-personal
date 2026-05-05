@@ -76,6 +76,13 @@ class PvPMatchupConfig(BaseModel):
     )
 
 
+class PvPGroupModelSpec(BaseModel):
+    """A model in a group evaluation. All must share the same base model."""
+
+    repo: str = Field(description="HuggingFace model repository")
+    hotkey: str = Field(description="Miner hotkey identifier")
+
+
 class PvPMode(str, Enum):
     """Evaluation mode: single pair or round-robin group."""
 
@@ -173,13 +180,6 @@ class PvPEvalResults(PvPBaseModel):
 
 
 # --- Group evaluation models ---
-
-
-class PvPGroupModelSpec(BaseModel):
-    """A model in a group evaluation. All must share the same base model."""
-
-    repo: str = Field(description="HuggingFace model repository")
-    hotkey: str = Field(description="Miner hotkey identifier")
 
 
 
