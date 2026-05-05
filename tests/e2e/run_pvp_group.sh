@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-NUM_GAMES="${1:-10}"
+NUM_GAMES="${1:-150}"
 IMAGE="pvp-eval:test"
 OUTPUT_DIR="/tmp/pvp-group-results"
 mkdir -p "$OUTPUT_DIR"
