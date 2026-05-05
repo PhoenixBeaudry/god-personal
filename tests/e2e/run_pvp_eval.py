@@ -34,14 +34,28 @@ from core.models.pvp_models import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="E2E PvP evaluation test")
     parser.add_argument(
-        "--model", default="Qwen/Qwen2.5-3B-Instruct",
+        "--model", default="NousResearch/Hermes-3-Llama-3.2-3B",
         help="Model repo for both players (symmetric test). Overridden by --model-a/--model-b.",
     )
-    parser.add_argument("--model-a", default=None, help="Model A repo (overrides --model)")
-    parser.add_argument("--model-b", default=None, help="Model B repo (overrides --model)")
     parser.add_argument(
-        "--base-model", default="Qwen/Qwen2.5-3B-Instruct",
+        "--model-a", default=None,
+        help="Model A repo (overrides --model). E.g. a LoRA adapter repo.",
+    )
+    parser.add_argument(
+        "--model-b", default=None,
+        help="Model B repo (overrides --model).",
+    )
+    parser.add_argument(
+        "--base-model", default="NousResearch/Hermes-3-Llama-3.2-3B",
         help="Base model for LoRA detection",
+    )
+    parser.add_argument(
+        "--lora-test", action="store_true",
+        help="Test LoRA vs base: model A = tournament LoRA adapter, model B = base model",
+    )
+    parser.add_argument(
+        "--full", action="store_true",
+        help="Run both tests: base-vs-base then LoRA-vs-base",
     )
     parser.add_argument("--num-games", type=int, default=3, help="Games per environment (each played twice)")
     parser.add_argument("--seed", type=int, default=42, help="Base seed")
@@ -56,9 +70,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+_TOURNAMENT_LORA_ADAPTER = (
+    "gradients-io-tournaments/tournament-tourn_cda90edddb13aba6_20260504"
+    "-e1a8f105-cceb-47d6-9848-94663b9f0fa0-5GKSa6y1"
+)
+_TOURNAMENT_LORA_BASE = "NousResearch/Hermes-3-Llama-3.2-3B"
+
+
 def build_config(args: argparse.Namespace) -> PvPEvalConfig:
-    model_a_repo = args.model_a or args.model
-    model_b_repo = args.model_b or args.model
+    if args.lora_test:
+        model_a_repo = _TOURNAMENT_LORA_ADAPTER
+        model_b_repo = _TOURNAMENT_LORA_BASE
+        args.base_model = _TOURNAMENT_LORA_BASE
+    else:
+        model_a_repo = args.model_a or args.model
+        model_b_repo = args.model_b or args.model
 
     matchups = {
         EnvironmentName(env): PvPMatchupConfig(num_games=args.num_games)
@@ -118,8 +144,8 @@ def validate_results(config: PvPEvalConfig, results_json: dict) -> list[str]:
     return errors
 
 
-def main() -> int:
-    args = parse_args()
+def _run_test(args: argparse.Namespace) -> int:
+    """Run a single test configuration. Returns 0 on success, 1 on failure."""
     config = build_config(args)
 
     print("=" * 60)
@@ -133,10 +159,20 @@ def main() -> int:
     print("=" * 60)
 
     # Import here so arg parsing / --help works without all deps installed
-    from validator.evaluation.utils import configure_eval_logging
+    from validator.evaluation.utils import check_for_lora, configure_eval_logging
     from validator.evaluation.pvp.__main__ import _run_evaluation
 
     configure_eval_logging()
+
+    # Verify LoRA auto-detection before running
+    is_lora_a = check_for_lora(config.model_a.repo, local_files_only=False)
+    is_lora_b = check_for_lora(config.model_b.repo, local_files_only=False)
+    print(f"LoRA detection: model_a={is_lora_a}, model_b={is_lora_b}")
+
+    if args.lora_test:
+        assert is_lora_a, f"Expected model_a ({config.model_a.repo}) to be detected as LoRA"
+        assert not is_lora_b, f"Expected model_b ({config.model_b.repo}) to NOT be detected as LoRA"
+        print("  LoRA detection verified: adapter correctly identified")
 
     start = time.time()
     try:
@@ -181,6 +217,38 @@ def main() -> int:
         print("  (With position swap, these should trend toward 50/50 over many games)")
 
     return 0
+
+
+def main() -> int:
+    args = parse_args()
+
+    if not args.full:
+        return _run_test(args)
+
+    # --full: run base-vs-base then LoRA-vs-base
+    results: list[tuple[str, int]] = []
+
+    print("\n>>> Test 1/2: Base model vs base model (symmetric)\n")
+    args.lora_test = False
+    args.model_a = None
+    args.model_b = None
+    results.append(("base-vs-base", _run_test(args)))
+
+    print("\n>>> Test 2/2: LoRA adapter vs base model\n")
+    args.lora_test = True
+    results.append(("lora-vs-base", _run_test(args)))
+
+    print("\n" + "=" * 60)
+    print("Overall Results")
+    print("=" * 60)
+    all_passed = True
+    for name, code in results:
+        status = "PASS" if code == 0 else "FAIL"
+        print(f"  {name}: {status}")
+        if code != 0:
+            all_passed = False
+
+    return 0 if all_passed else 1
 
 
 if __name__ == "__main__":
