@@ -25,7 +25,7 @@ from core.models.pvp_models import (
     PvPModelSpec,
 )
 from validator.core import constants as vcst
-from validator.evaluation.eval_environment import _stop_process
+from validator.evaluation.eval_environment import _configure_logging as configure_eval_logging, _stop_process
 from validator.evaluation.utils import check_for_lora
 from validator.evaluation.pvp.game_runner import Player, create_player, run_matchup
 from validator.evaluation.pvp.server import start_sglang, wait_for_servers
@@ -46,8 +46,8 @@ def main() -> int:
 
 
 def _configure_logging() -> None:
-    level = os.getenv(vcst.PVP_LOG_LEVEL_ENV_VAR, "INFO").upper()
-    logging.basicConfig(level=level, format=vcst.PVP_LOG_FORMAT, stream=sys.stderr)
+    """Reuse the eval container's logging setup (stderr handler, replaces existing handlers)."""
+    configure_eval_logging()
 
 
 def _load_config() -> PvPEvalConfig:
