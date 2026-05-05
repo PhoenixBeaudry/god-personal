@@ -29,6 +29,7 @@ SGLANG_EXTRA_CLI_DEFAULT = (
 SGLANG_HEALTH_TIMEOUT = 600
 ENV_EVAL_TEMPERATURE = 0.0
 ENV_EVAL_TASK_TIMEOUT = 150
+CONSECUTIVE_FAILURE_LIMIT = 5
 
 
 # --- SGLang process management (from eval_environment.py) ---
@@ -116,9 +117,15 @@ async def _play_episodes(
     task_id_max: int,
     eval_payload_extra: dict | None,
 ) -> EnvStats:
-    """Play episodes against a single environment and return summary stats."""
+    """Play episodes against a single environment and return summary stats.
+
+    Stops early if CONSECUTIVE_FAILURE_LIMIT episodes fail in a row — the
+    remaining episodes would almost certainly fail too (model hallucinating,
+    timeouts), so there's no signal in continuing.
+    """
     seed_rng = random.Random(42)
     scores: list[float] = []
+    consecutive_failures = 0
 
     print(f"  {env_name.value}: playing {num_episodes} episodes...", flush=True)
 
@@ -137,6 +144,7 @@ async def _play_episodes(
         if eval_payload_extra:
             payload.update(eval_payload_extra)
 
+        failed = False
         try:
             timeout = aiohttp.ClientTimeout(total=ENV_EVAL_TASK_TIMEOUT)
             async with session.post(
@@ -148,11 +156,25 @@ async def _play_episodes(
                     score = float(result.get("score", 0.0))
                 else:
                     score = 0.0
+                    failed = True
         except Exception as e:
             print(f"  {env_name.value} episode {i+1}: error {e}", flush=True)
             score = 0.0
+            failed = True
 
         scores.append(score)
+
+        if failed:
+            consecutive_failures += 1
+            if consecutive_failures >= CONSECUTIVE_FAILURE_LIMIT:
+                print(
+                    f"  {env_name.value}: {CONSECUTIVE_FAILURE_LIMIT} consecutive failures, "
+                    f"stopping early at episode {i+1}/{num_episodes}",
+                    flush=True,
+                )
+                break
+        else:
+            consecutive_failures = 0
 
     stats = _build_env_stats(scores)
     print(f"  {env_name.value}: {stats.num_episodes} episodes, mean={stats.mean_score:.3f}", flush=True)

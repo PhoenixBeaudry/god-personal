@@ -35,15 +35,17 @@ class EnvironmentConfig:
     task_id_min: int
     task_id_max: int
     num_seeds: int
+    num_baseline_episodes: int
     env_image: str
     eval_payload_extra: dict
 
 
 ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
-    EnvironmentName.GIN_RUMMY: EnvironmentConfig(
-        task_id_min=300_000_000,
-        task_id_max=399_999_999,
-        num_seeds=1000,
+    EnvironmentName.LEDUC_POKER: EnvironmentConfig(
+        task_id_min=200_000_000,
+        task_id_max=299_999_999,
+        num_seeds=2000,
+        num_baseline_episodes=50,
         env_image=MCTS_API_DOCKER_IMAGE,
         eval_payload_extra={
             "opponent": "mcts",
@@ -56,6 +58,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_min=100_000_000,
         task_id_max=199_999_999,
         num_seeds=10_000,
+        num_baseline_episodes=50,
         env_image=MCTS_API_DOCKER_IMAGE,
         eval_payload_extra={
             "opponent": "mcts",
@@ -64,10 +67,11 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
             "api_key": "dummy-key",
         },
     ),
-    EnvironmentName.LEDUC_POKER: EnvironmentConfig(
-        task_id_min=200_000_000,
-        task_id_max=299_999_999,
-        num_seeds=2000,
+    EnvironmentName.GIN_RUMMY: EnvironmentConfig(
+        task_id_min=300_000_000,
+        task_id_max=399_999_999,
+        num_seeds=1000,
+        num_baseline_episodes=25,
         env_image=MCTS_API_DOCKER_IMAGE,
         eval_payload_extra={
             "opponent": "mcts",

@@ -22,7 +22,6 @@ logger = get_logger(__name__)
 
 MODEL_PREP_TIMEOUT_SECONDS = 1800
 
-NUM_EPISODES_MODEL_PREP = 100
 
 
 def _gpu_requirement_for_model_prep(num_params: int) -> GpuRequirement:
@@ -53,7 +52,7 @@ def _build_env_configs() -> dict[EnvironmentName, EnvConfig]:
             env_image=cfg.env_image,
             task_id_min=cfg.task_id_min,
             task_id_max=cfg.task_id_max,
-            num_episodes=NUM_EPISODES_MODEL_PREP,
+            num_episodes=cfg.num_baseline_episodes,
             eval_payload_extra=cfg.eval_payload_extra,
         )
         for env_name, cfg in ENVIRONMENT_CONFIGS.items()
