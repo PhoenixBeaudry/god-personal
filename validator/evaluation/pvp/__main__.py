@@ -11,6 +11,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -148,7 +149,7 @@ def _start_sglang(model_path: str, gpu_id: int, port: int) -> subprocess.Popen:
     cmd = _build_sglang_command(model_path, port=port, seed=42)
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
     logger.info("Starting SGLang on GPU %d port %d", gpu_id, port)
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
@@ -158,6 +159,21 @@ def _start_sglang(model_path: str, gpu_id: int, port: int) -> subprocess.Popen:
         preexec_fn=os.setsid,
         env=env,
     )
+    _drain_stdout(proc, f"sglang-gpu{gpu_id}")
+    return proc
+
+
+def _drain_stdout(proc: subprocess.Popen, name: str) -> None:
+    """Drain subprocess stdout in a background thread to prevent pipe buffer deadlock."""
+
+    def _reader() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            logger.debug("[%s] %s", name, line.rstrip())
+        proc.stdout.close()
+
+    thread = threading.Thread(target=_reader, name=f"drain-{name}", daemon=True)
+    thread.start()
 
 
 async def _wait_for_servers(port_a: int, port_b: int) -> None:
