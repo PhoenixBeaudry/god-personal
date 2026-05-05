@@ -8,7 +8,10 @@ RUN pip install --no-cache-dir --upgrade-strategy only-if-needed \
     pyyaml \
     aiohttp \
     huggingface_hub \
-    tenacity
+    tenacity \
+    basilica-sdk \
+    docker \
+    git+https://github.com/besimray/fiber.git@v2.6.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends libnuma1 && rm -rf /var/lib/apt/lists/*
 
