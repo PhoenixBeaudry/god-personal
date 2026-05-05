@@ -41,6 +41,14 @@ class GameInstance(BaseModel):
     max_utility: float = Field(description="Game's maximum utility value")
 
 
+class PreparedModel(BaseModel):
+    """Result of detecting model type and building SGLang flags."""
+
+    model_path: str = Field(description="HF repo ID passed to SGLang --model-path")
+    inference_name: str = Field(description="Model name used in chat completion requests")
+    extra_sglang_args: str = Field(default="", description="Additional SGLang CLI flags (e.g. LoRA)")
+
+
 class PvPModelSpec(BaseModel):
     """Specification for a model participating in PvP evaluation."""
 

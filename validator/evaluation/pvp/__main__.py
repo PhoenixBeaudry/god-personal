@@ -7,7 +7,6 @@ Usage: python -m validator.evaluation.pvp
 """
 
 import asyncio
-import glob
 import logging
 import os
 import subprocess
@@ -15,10 +14,10 @@ import sys
 import threading
 import time
 from pathlib import Path
-
 from core.constants import EnvironmentName
 from core.models.pvp_models import (
     ChatCompletionConfig,
+    PreparedModel,
     PvPEnvironmentResult,
     PvPEvalConfig,
     PvPEvalMetadata,
@@ -27,13 +26,10 @@ from core.models.pvp_models import (
 )
 from validator.core import constants as vcst
 from validator.evaluation.eval_environment import (
-    _download_lora_with_retry,
-    _download_model_with_retry,
-    _merge_base_and_lora,
     _stop_process,
     _wait_for_health,
 )
-from validator.evaluation.utils import check_for_lora, check_lora_has_added_tokens
+from validator.evaluation.utils import check_for_lora
 from validator.evaluation.pvp.chat import create_client
 from validator.evaluation.pvp.game_runner import Player, run_matchup
 
@@ -44,7 +40,7 @@ def main() -> int:
     _configure_logging()
     try:
         config = _load_config()
-        results = _run(config)
+        results = _run_evaluation(config)
         _write_results(results)
         return 0
     except Exception as exc:
@@ -79,31 +75,48 @@ def _resolve_spec(spec: PvPModelSpec, default_gpu: int, default_port: int) -> tu
     return gpu, port
 
 
-def _build_chat_config(port: int, eval_config: PvPEvalConfig, inference_model_name: str) -> ChatCompletionConfig:
-    """Construct ChatCompletionConfig from resolved port and eval settings.
+def _prepare_model(spec: PvPModelSpec, label: str) -> PreparedModel:
+    """Detect LoRA and build the right SGLang flags.
 
-    inference_model_name follows the existing eval convention: repo string for
-    full weights/merged LoRA, or "base:lora_name" for native LoRA.
-    SGLang accepts any model name when only one model is loaded.
+    SGLang handles HF downloads internally — we just pass repo IDs.
     """
+    is_lora = check_for_lora(spec.repo, local_files_only=False)
+    logger.info("Model %s: repo=%s is_lora=%s", label, spec.repo, is_lora)
+
+    if is_lora:
+        lora_name = f"{label}_trained_lora"
+        return PreparedModel(
+            model_path=spec.original_model,
+            inference_name=f"{spec.original_model}:{lora_name}",
+            extra_sglang_args=f"--enable-lora --lora-paths {lora_name}={spec.repo} --lora-backend triton",
+        )
+
+    return PreparedModel(
+        model_path=spec.repo,
+        inference_name=spec.repo,
+        extra_sglang_args="",
+    )
+
+
+def _build_chat_config(port: int, eval_config: PvPEvalConfig, inference_name: str) -> ChatCompletionConfig:
+    """Construct ChatCompletionConfig from resolved port and eval settings."""
     return ChatCompletionConfig(
-        model=inference_model_name,
+        model=inference_name,
         base_url=f"http://{vcst.PVP_SGLANG_HOST}:{port}{vcst.PVP_SGLANG_API_PATH}",
         temperature=eval_config.temperature,
         seed=eval_config.seed,
     )
 
 
-def _run(config: PvPEvalConfig) -> PvPEvalResults:
-    """Prepare models, start servers, run all matchups, return results."""
+def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
+    """Start servers, run all matchups, return results."""
     start_time = time.time()
 
     gpu_a, port_a = _resolve_spec(config.model_a, default_gpu=0, default_port=vcst.PVP_SGLANG_PORT_A)
     gpu_b, port_b = _resolve_spec(config.model_b, default_gpu=1, default_port=vcst.PVP_SGLANG_PORT_B)
 
-    # Prepare models (download, detect LoRA, merge if needed)
-    model_path_a, model_name_a, sglang_extra_a = _prepare_model(config.model_a, "a")
-    model_path_b, model_name_b, sglang_extra_b = _prepare_model(config.model_b, "b")
+    prepared_a = _prepare_model(config.model_a, "a")
+    prepared_b = _prepare_model(config.model_b, "b")
 
     sglang_a: subprocess.Popen | None = None
     sglang_b: subprocess.Popen | None = None
@@ -111,12 +124,12 @@ def _run(config: PvPEvalConfig) -> PvPEvalResults:
     player_b: Player | None = None
 
     try:
-        sglang_a = _start_sglang(model_path_a, gpu_a, port_a, config.seed, sglang_extra_a)
-        sglang_b = _start_sglang(model_path_b, gpu_b, port_b, config.seed + 1, sglang_extra_b)
+        sglang_a = _start_sglang(prepared_a, gpu_a, port_a, config.seed)
+        sglang_b = _start_sglang(prepared_b, gpu_b, port_b, config.seed + 1)
         asyncio.run(_wait_for_servers(port_a, port_b))
 
-        config_a = _build_chat_config(port_a, config, model_path_a)
-        config_b = _build_chat_config(port_b, config, model_path_b)
+        config_a = _build_chat_config(port_a, config, prepared_a.inference_name)
+        config_b = _build_chat_config(port_b, config, prepared_b.inference_name)
 
         player_a = Player(client=create_client(config_a), config=config_a)
         player_b = Player(client=create_client(config_b), config=config_b)
@@ -151,66 +164,15 @@ def _run(config: PvPEvalConfig) -> PvPEvalResults:
         _stop_process(sglang_b, "sglang-b")
 
 
-def _prepare_model(spec: PvPModelSpec, label: str) -> tuple[str, str, str]:
-    """Download model and handle LoRA detection/merging.
-
-    Returns:
-        (model_path_for_sglang, inference_model_name, extra_sglang_args)
-    """
-    is_lora = check_for_lora(spec.repo, local_files_only=False)
-    should_merge = is_lora and check_lora_has_added_tokens(spec.repo, local_files_only=False)
-
-    logger.info("Model %s: repo=%s is_lora=%s merge=%s", label, spec.repo, is_lora, should_merge)
-
-    if is_lora and not should_merge:
-        # SGLang native LoRA: load base model + adapter separately
-        model_path = _download_model_with_retry(spec.original_model)
-        lora_dir = f"/lora/{label}_trained_lora"
-        _download_lora_with_retry(spec.repo, lora_dir)
-        _clean_lora_dir(lora_dir)
-        inference_name = f"{spec.original_model}:{label}_trained_lora"
-        extra_args = f"--enable-lora --lora-paths {label}_trained_lora={lora_dir} --lora-backend triton"
-        return model_path, inference_name, extra_args
-
-    if is_lora and should_merge:
-        # LoRA with added tokens: merge into base, serve merged
-        base_path = _download_model_with_retry(spec.original_model)
-        lora_temp = f"/tmp/lora/{label}_trained_lora"
-        _download_lora_with_retry(spec.repo, lora_temp)
-        merged_path = _merge_base_and_lora(base_path, lora_temp, output_dir=f"/tmp/merged_{label}")
-        return merged_path, spec.repo, ""
-
-    # Full weights: download and serve directly
-    model_path = _download_model_with_retry(spec.repo)
-    return model_path, spec.repo, ""
-
-
-def _clean_lora_dir(lora_dir: str) -> None:
-    """Remove incompatible full-model files from a LoRA download."""
-    for model_file in glob.glob(os.path.join(lora_dir, "model-*.safetensors")):
-        try:
-            os.remove(model_file)
-            logger.info("Removed incompatible LoRA file: %s", os.path.basename(model_file))
-        except OSError as exc:
-            logger.warning("Failed to remove %s: %s", model_file, exc)
-
-    index_file = os.path.join(lora_dir, "model.safetensors.index.json")
-    if os.path.exists(index_file):
-        try:
-            os.remove(index_file)
-        except OSError as exc:
-            logger.warning("Failed to remove index file: %s", exc)
-
-
-def _build_sglang_command(model_path: str, port: int, seed: int, extra_args: str) -> str:
-    """Build SGLang launch command with explicit port and optional LoRA flags."""
+def _build_sglang_command(prepared: PreparedModel, port: int, seed: int) -> str:
+    """Build SGLang launch command."""
     tensor_parallel = os.getenv("SGLANG_TENSOR_PARALLEL_SIZE", "1")
     dtype = os.getenv("SGLANG_DTYPE", "float16")
     cli_extra = (os.getenv("SGLANG_ENV_EVAL_EXTRA_CLI") or vcst.SGLANG_ENV_EVAL_EXTRA_CLI).strip()
 
     cmd = (
         "python3 -m sglang.launch_server "
-        f"--model-path {model_path} "
+        f"--model-path {prepared.model_path} "
         f"--host 0.0.0.0 --port {port} "
         f"--tensor-parallel-size {tensor_parallel} "
         f"--dtype {dtype} "
@@ -218,14 +180,14 @@ def _build_sglang_command(model_path: str, port: int, seed: int, extra_args: str
     )
     if cli_extra:
         cmd = f"{cmd} {cli_extra}"
-    if extra_args:
-        cmd = f"{cmd} {extra_args}"
+    if prepared.extra_sglang_args:
+        cmd = f"{cmd} {prepared.extra_sglang_args}"
     return cmd
 
 
-def _start_sglang(model_path: str, gpu_id: int, port: int, seed: int, extra_args: str) -> subprocess.Popen:
+def _start_sglang(prepared: PreparedModel, gpu_id: int, port: int, seed: int) -> subprocess.Popen:
     """Start an SGLang server on the specified GPU and port."""
-    cmd = _build_sglang_command(model_path, port, seed, extra_args)
+    cmd = _build_sglang_command(prepared, port, seed)
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
     logger.info("Starting SGLang on GPU %d port %d", gpu_id, port)
     proc = subprocess.Popen(
