@@ -132,7 +132,7 @@ class ChatResult(BaseModel):
     """Result from an LLM chat completion."""
 
     content: str | None = None
-    usage: dict[str, int] | None = None
+    usage: dict[str, int | None] | None = None
 
 
 class ChatFn(Protocol):
