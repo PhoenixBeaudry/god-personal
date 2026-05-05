@@ -96,7 +96,7 @@ def _build_instances(
             min_utility=game.min_utility(),
             max_utility=game.max_utility(),
         )
-        swapped = base.model_copy(update={"model_a_player_id": 1, "seed": seed + vcst.PVP_SEED_OFFSET_SWAP})
+        swapped = base.model_copy(update={"model_a_player_id": 1})
 
         instances.append(base)
         instances.append(swapped)
@@ -150,7 +150,7 @@ def _play_game(
         client=player_a.client,
         config=player_a.config,
         agent=agent,
-        rng_seed=instance.seed,
+        rng_seed=instance.seed + instance.model_a_player_id,
     )
     bot_b = LLMBot(
         game=game,
@@ -158,7 +158,7 @@ def _play_game(
         client=player_b.client,
         config=player_b.config,
         agent=agent,
-        rng_seed=instance.seed + 1,
+        rng_seed=instance.seed + model_b_player_id,
     )
 
     bots = [None, None]
