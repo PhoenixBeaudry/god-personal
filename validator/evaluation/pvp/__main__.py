@@ -25,8 +25,7 @@ from core.models.pvp_models import (
     PvPModelSpec,
 )
 from validator.core import constants as vcst
-from validator.evaluation.eval_environment import _configure_logging as configure_eval_logging, _stop_process
-from validator.evaluation.utils import check_for_lora
+from validator.evaluation.utils import check_for_lora, configure_eval_logging, stop_process
 from validator.evaluation.pvp.game_runner import Player, create_player, run_matchup
 from validator.evaluation.pvp.server import start_sglang, wait_for_servers
 
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> int:
-    _configure_logging()
+    configure_eval_logging()
     try:
         config = _load_config()
         results = _run_evaluation(config)
@@ -43,11 +42,6 @@ def main() -> int:
     except Exception as exc:
         logger.exception("PvP evaluation failed: %s", exc)
         return 1
-
-
-def _configure_logging() -> None:
-    """Reuse the eval container's logging setup (stderr handler, replaces existing handlers)."""
-    configure_eval_logging()
 
 
 def _load_config() -> PvPEvalConfig:
@@ -156,8 +150,8 @@ def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
             player_a.client.close()
         if player_b:
             player_b.client.close()
-        _stop_process(sglang_a, "sglang-a")
-        _stop_process(sglang_b, "sglang-b")
+        stop_process(sglang_a, "sglang-a")
+        stop_process(sglang_b, "sglang-b")
 
 
 def _write_results(results: PvPEvalResults) -> None:
