@@ -18,6 +18,5 @@ COPY . /app
 
 ENV PVP_EVAL_CONFIG=""
 ENV EVAL_LOG_LEVEL="INFO"
-ENV CUDA_VISIBLE_DEVICES="0,1"
 
 ENTRYPOINT ["python", "-m", "validator.evaluation.pvp"]

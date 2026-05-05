@@ -7,13 +7,14 @@ Each seed is played twice with swapped positions for fairness.
 import functools
 import logging
 import random
+from typing import NamedTuple
 
 import numpy as np
+import openai
 import pyspiel
 from open_spiel.python.algorithms import evaluate_bots
 
 from core.constants import EnvironmentName, ENVIRONMENT_CONFIGS
-from validator.core import constants as vcst
 from core.models.pvp_models import (
     ChatCompletionConfig,
     GameInstance,
@@ -22,6 +23,7 @@ from core.models.pvp_models import (
     PvPEnvironmentResult,
     PvPMatchupConfig,
 )
+from validator.core import constants as vcst
 from validator.evaluation.pvp.agents import (
     BaseGameAgent,
     GinRummyAgent,
@@ -33,6 +35,14 @@ from validator.evaluation.pvp.scoring import determine_outcome
 
 logger = logging.getLogger(__name__)
 
+
+class Player(NamedTuple):
+    """A configured player: reusable client + its chat config."""
+
+    client: openai.OpenAI
+    config: ChatCompletionConfig
+
+
 _AGENT_REGISTRY: dict[EnvironmentName, type[BaseGameAgent]] = {
     EnvironmentName.LIARS_DICE: LiarsDiceAgent,
     EnvironmentName.LEDUC_POKER: LeducPokerAgent,
@@ -43,8 +53,8 @@ _AGENT_REGISTRY: dict[EnvironmentName, type[BaseGameAgent]] = {
 def run_matchup(
     env_name: EnvironmentName,
     matchup_config: PvPMatchupConfig,
-    config_a: ChatCompletionConfig,
-    config_b: ChatCompletionConfig,
+    player_a: Player,
+    player_b: Player,
     base_seed: int,
 ) -> PvPEnvironmentResult:
     """Run a full PvP matchup for one environment.
@@ -53,7 +63,7 @@ def run_matchup(
     """
     agent = _AGENT_REGISTRY[env_name]()
     instances = _build_instances(env_name, agent, matchup_config.num_games, base_seed)
-    return _execute_matchup(env_name, instances, config_a, config_b, agent)
+    return _execute_matchup(env_name, instances, player_a, player_b, agent)
 
 
 def _build_instances(
@@ -97,12 +107,12 @@ def _build_instances(
 def _execute_matchup(
     env_name: EnvironmentName,
     instances: list[GameInstance],
-    config_a: ChatCompletionConfig,
-    config_b: ChatCompletionConfig,
+    player_a: Player,
+    player_b: Player,
     agent: BaseGameAgent,
 ) -> PvPEnvironmentResult:
     """Play all game instances and tally results."""
-    play = functools.partial(_play_game, config_a=config_a, config_b=config_b, agent=agent)
+    play = functools.partial(_play_game, player_a=player_a, player_b=player_b, agent=agent)
 
     result = PvPEnvironmentResult()
     for i, instance in enumerate(instances):
@@ -126,8 +136,8 @@ def _execute_matchup(
 
 def _play_game(
     instance: GameInstance,
-    config_a: ChatCompletionConfig,
-    config_b: ChatCompletionConfig,
+    player_a: Player,
+    player_b: Player,
     agent: BaseGameAgent,
 ) -> GameOutcome:
     """Play a single game and return outcome from model_a's perspective."""
@@ -137,14 +147,16 @@ def _play_game(
     bot_a = LLMBot(
         game=game,
         player_id=instance.model_a_player_id,
-        config=config_a,
+        client=player_a.client,
+        config=player_a.config,
         agent=agent,
         rng_seed=instance.seed,
     )
     bot_b = LLMBot(
         game=game,
         player_id=model_b_player_id,
-        config=config_b,
+        client=player_b.client,
+        config=player_b.config,
         agent=agent,
         rng_seed=instance.seed + 1,
     )

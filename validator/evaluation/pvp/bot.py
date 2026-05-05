@@ -9,6 +9,7 @@ import logging
 import re
 
 import numpy as np
+import openai
 import pyspiel
 
 from core.models.pvp_models import ChatCompletionConfig, ChatMessage
@@ -31,6 +32,7 @@ class LLMBot(pyspiel.Bot):
         self,
         game: pyspiel.Game,
         player_id: int,
+        client: openai.OpenAI,
         config: ChatCompletionConfig,
         agent: BaseGameAgent,
         rng_seed: int,
@@ -38,6 +40,7 @@ class LLMBot(pyspiel.Bot):
         pyspiel.Bot.__init__(self)
         self._game = game
         self._player_id = player_id
+        self._client = client
         self._config = config
         self._agent = agent
         self._rng = np.random.RandomState(rng_seed)
@@ -66,7 +69,7 @@ class LLMBot(pyspiel.Bot):
         self._conversation.append(ChatMessage(role="user", content=user_prompt))
 
         for attempt in range(vcst.PVP_BOT_MAX_PARSING_RETRIES + 1):
-            result = chat_completion(self._config, self._conversation)
+            result = chat_completion(self._client, self._config, self._conversation)
 
             if result.content is None:
                 self._conversation.append(ChatMessage(role="assistant", content=""))
@@ -96,18 +99,21 @@ def _parse_action(response: str, legal_actions: list[int]) -> int | None:
 
     Strategies (in priority order):
     1. Response is purely a number
-    2. Find a legal action ID mentioned in the text
+    2. Last number in text that is a legal action (avoids matching
+       early mentions like "considering action 3, I pick 13")
     """
     cleaned = response.strip()
+    legal_set = set(legal_actions)
 
     match = re.match(r"^\s*(\d+)\s*$", cleaned)
     if match:
         action = int(match.group(1))
-        if action in legal_actions:
+        if action in legal_set:
             return action
 
-    for action in legal_actions:
-        if re.search(rf"\b{action}\b", cleaned):
-            return action
+    numbers = [int(m) for m in re.findall(r"\b(\d+)\b", cleaned)]
+    for num in reversed(numbers):
+        if num in legal_set:
+            return num
 
     return None

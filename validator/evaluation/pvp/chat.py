@@ -1,6 +1,5 @@
 """Synchronous OpenAI-compatible chat client for PvP bot inference.
 
-Communicates with SGLang's chat completions endpoint.
 Uses the sync openai.OpenAI client since evaluate_bots calls
 bot.step() synchronously — no async machinery needed.
 """
@@ -9,7 +8,6 @@ import logging
 import re
 import time
 
-import httpx
 import openai
 
 from core.models.pvp_models import ChatCompletionConfig, ChatMessage, ChatResult
@@ -30,25 +28,23 @@ def strip_think_tags(text: str) -> str:
     return cleaned.strip()
 
 
+def create_client(config: ChatCompletionConfig) -> openai.OpenAI:
+    """Create a reusable sync OpenAI client from config. Caller owns lifecycle."""
+    return openai.OpenAI(
+        base_url=config.base_url.rstrip("/"),
+        api_key=config.api_key,
+        timeout=config.read_timeout,
+        max_retries=0,
+    )
+
+
 def chat_completion(
+    client: openai.OpenAI,
     config: ChatCompletionConfig,
     messages: list[ChatMessage],
 ) -> ChatResult:
-    """Call an OpenAI-compatible chat endpoint with retries.
-
-    Synchronous — no event loop needed. Retries on transient failures
-    with exponential backoff.
-    """
-    client = openai.OpenAI(
-        base_url=config.base_url.rstrip("/"),
-        api_key=config.api_key,
-        timeout=httpx.Timeout(connect=10.0, read=config.chunk_timeout, write=10.0, pool=10.0),
-        max_retries=0,
-    )
-    try:
-        return _with_retries(client, config, messages)
-    finally:
-        client.close()
+    """Call chat endpoint with retries. Client should be created via create_client()."""
+    return _with_retries(client, config, messages)
 
 
 def _with_retries(
@@ -97,7 +93,7 @@ def _call(
         messages=messages_dicts,
         temperature=config.temperature,
         seed=config.seed,
-        extra_body={"max_new_tokens": config.max_new_tokens},
+        max_tokens=config.max_tokens,
     )
 
     content: str | None = None

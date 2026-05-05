@@ -108,9 +108,9 @@ class ChatCompletionConfig(BaseModel):
     api_key: str = Field(default="dummy", description="API key (SGLang ignores but SDK requires)")
     temperature: float | None = Field(default=None, description="Sampling temperature, None uses server default")
     seed: int | None = Field(default=None, description="Random seed for reproducibility")
-    max_new_tokens: int = Field(default=20, gt=0, description="Max tokens to generate per response")
+    max_tokens: int = Field(default=20, gt=0, description="Max tokens to generate per response")
     max_retries: int = Field(default=10, ge=0, description="Retry attempts on transient failures")
-    chunk_timeout: float = Field(default=30.0, gt=0, description="Max seconds between streaming chunks")
+    read_timeout: float = Field(default=30.0, gt=0, description="HTTP read timeout in seconds")
 
 
 class ChatResult(BaseModel):
@@ -118,6 +118,8 @@ class ChatResult(BaseModel):
 
     content: str | None = None
     usage: dict[str, int] | None = None
+
+
 
 
 class PvPEvalMetadata(BaseModel):
