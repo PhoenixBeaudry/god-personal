@@ -50,7 +50,7 @@ def start_sglang(prepared: PreparedModel, gpu_id: int, port: int, seed: int) -> 
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        process_group=0,
+        preexec_fn=os.setsid,
         env=env,
     )
     _drain_stdout(proc, f"sglang-gpu{gpu_id}")

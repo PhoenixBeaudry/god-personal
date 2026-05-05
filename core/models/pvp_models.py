@@ -36,7 +36,7 @@ class GameScoringContext(BaseModel):
     max_utility: float = Field(description="Maximum possible return value")
 
 
-class GameInstance(BaseModel):
+class GameInstance(PvPBaseModel):
     """Configuration for a single game to be played."""
 
     game_name: str = Field(description="OpenSpiel game identifier (e.g. 'liars_dice')")
