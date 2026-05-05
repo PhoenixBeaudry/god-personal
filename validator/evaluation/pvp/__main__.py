@@ -11,9 +11,9 @@ import logging
 import os
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
+
 from core.constants import EnvironmentName
 from core.models.pvp_models import (
     ChatCompletionConfig,
@@ -25,13 +25,10 @@ from core.models.pvp_models import (
     PvPModelSpec,
 )
 from validator.core import constants as vcst
-from validator.evaluation.eval_environment import (
-    _stop_process,
-    _wait_for_health,
-)
+from validator.evaluation.eval_environment import _stop_process
 from validator.evaluation.utils import check_for_lora
-from validator.evaluation.pvp.chat import create_client
-from validator.evaluation.pvp.game_runner import Player, run_matchup
+from validator.evaluation.pvp.game_runner import Player, create_player, run_matchup
+from validator.evaluation.pvp.server import start_sglang, wait_for_servers
 
 logger = logging.getLogger(__name__)
 
@@ -86,22 +83,21 @@ def _prepare_model(spec: PvPModelSpec, label: str) -> PreparedModel:
     if is_lora:
         lora_name = f"{label}_trained_lora"
         return PreparedModel(
-            model_path=spec.original_model,
+            sglang_model_path=spec.original_model,
             inference_name=f"{spec.original_model}:{lora_name}",
             extra_sglang_args=f"--enable-lora --lora-paths {lora_name}={spec.repo} --lora-backend triton",
         )
 
     return PreparedModel(
-        model_path=spec.repo,
+        sglang_model_path=spec.repo,
         inference_name=spec.repo,
-        extra_sglang_args="",
     )
 
 
 def _build_chat_config(port: int, eval_config: PvPEvalConfig, inference_name: str) -> ChatCompletionConfig:
     """Construct ChatCompletionConfig from resolved port and eval settings."""
     return ChatCompletionConfig(
-        model=inference_name,
+        inference_model=inference_name,
         base_url=f"http://{vcst.PVP_SGLANG_HOST}:{port}{vcst.PVP_SGLANG_API_PATH}",
         temperature=eval_config.temperature,
         seed=eval_config.seed,
@@ -124,15 +120,15 @@ def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
     player_b: Player | None = None
 
     try:
-        sglang_a = _start_sglang(prepared_a, gpu_a, port_a, config.seed)
-        sglang_b = _start_sglang(prepared_b, gpu_b, port_b, config.seed + 1)
-        asyncio.run(_wait_for_servers(port_a, port_b))
+        sglang_a = start_sglang(prepared_a, gpu_a, port_a, config.seed)
+        sglang_b = start_sglang(prepared_b, gpu_b, port_b, config.seed + 1)
+        asyncio.run(wait_for_servers(port_a, port_b))
 
         config_a = _build_chat_config(port_a, config, prepared_a.inference_name)
         config_b = _build_chat_config(port_b, config, prepared_b.inference_name)
 
-        player_a = Player(client=create_client(config_a), config=config_a)
-        player_b = Player(client=create_client(config_b), config=config_b)
+        player_a = create_player(config_a)
+        player_b = create_player(config_b)
 
         env_results: dict[EnvironmentName, PvPEnvironmentResult] = {}
         for env_name, matchup_config in config.matchups.items():
@@ -162,77 +158,6 @@ def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
             player_b.client.close()
         _stop_process(sglang_a, "sglang-a")
         _stop_process(sglang_b, "sglang-b")
-
-
-def _build_sglang_command(prepared: PreparedModel, port: int, seed: int) -> str:
-    """Build SGLang launch command."""
-    tensor_parallel = os.getenv("SGLANG_TENSOR_PARALLEL_SIZE", "1")
-    dtype = os.getenv("SGLANG_DTYPE", "float16")
-    cli_extra = (os.getenv("SGLANG_ENV_EVAL_EXTRA_CLI") or vcst.SGLANG_ENV_EVAL_EXTRA_CLI).strip()
-
-    cmd = (
-        "python3 -m sglang.launch_server "
-        f"--model-path {prepared.model_path} "
-        f"--host 0.0.0.0 --port {port} "
-        f"--tensor-parallel-size {tensor_parallel} "
-        f"--dtype {dtype} "
-        f"--enable-deterministic-inference --random-seed {seed}"
-    )
-    if cli_extra:
-        cmd = f"{cmd} {cli_extra}"
-    if prepared.extra_sglang_args:
-        cmd = f"{cmd} {prepared.extra_sglang_args}"
-    return cmd
-
-
-def _start_sglang(prepared: PreparedModel, gpu_id: int, port: int, seed: int) -> subprocess.Popen:
-    """Start an SGLang server on the specified GPU and port."""
-    cmd = _build_sglang_command(prepared, port, seed)
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
-    logger.info("Starting SGLang on GPU %d port %d", gpu_id, port)
-    proc = subprocess.Popen(
-        cmd,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        process_group=0,
-        env=env,
-    )
-    _drain_stdout(proc, f"sglang-gpu{gpu_id}")
-    return proc
-
-
-def _drain_stdout(proc: subprocess.Popen, name: str) -> None:
-    """Drain subprocess stdout in a background thread to prevent pipe buffer deadlock."""
-
-    def _reader() -> None:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            logger.debug("[%s] %s", name, line.rstrip())
-        proc.stdout.close()
-
-    thread = threading.Thread(target=_reader, name=f"drain-{name}", daemon=True)
-    thread.start()
-
-
-async def _wait_for_servers(port_a: int, port_b: int) -> None:
-    """Wait for both SGLang instances to become healthy."""
-    await asyncio.gather(
-        _wait_for_health(
-            f"http://{vcst.PVP_SGLANG_HOST}:{port_a}",
-            vcst.PVP_SGLANG_HEALTH_PATH,
-            vcst.PVP_SGLANG_HEALTH_TIMEOUT,
-            service_name="sglang-a",
-        ),
-        _wait_for_health(
-            f"http://{vcst.PVP_SGLANG_HOST}:{port_b}",
-            vcst.PVP_SGLANG_HEALTH_PATH,
-            vcst.PVP_SGLANG_HEALTH_TIMEOUT,
-            service_name="sglang-b",
-        ),
-    )
 
 
 def _write_results(results: PvPEvalResults) -> None:

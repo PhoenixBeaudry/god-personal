@@ -7,6 +7,7 @@ Each seed is played twice with swapped positions for fairness.
 import functools
 import logging
 import random
+import signal
 from typing import NamedTuple
 
 import numpy as np
@@ -17,6 +18,7 @@ from open_spiel.python.algorithms import evaluate_bots
 from core.constants import EnvironmentName, ENVIRONMENT_CONFIGS
 from core.models.pvp_models import (
     ChatCompletionConfig,
+    ChatFn,
     GameInstance,
     GameOutcome,
     GameScoringContext,
@@ -31,16 +33,25 @@ from validator.evaluation.pvp.agents import (
     LiarsDiceAgent,
 )
 from validator.evaluation.pvp.bot import LLMBot
+from validator.evaluation.pvp.chat import chat_completion, create_client
 from validator.evaluation.pvp.scoring import determine_outcome
 
 logger = logging.getLogger(__name__)
 
 
 class Player(NamedTuple):
-    """A configured player: reusable client + its chat config."""
+    """A configured player: reusable client, config, and bound chat function."""
 
     client: openai.OpenAI
     config: ChatCompletionConfig
+    chat_fn: ChatFn
+
+
+def create_player(config: ChatCompletionConfig) -> Player:
+    """Create a Player with a client bound to the config. Enforces client/config invariant."""
+    client = create_client(config)
+    bound_chat: ChatFn = functools.partial(chat_completion, client)
+    return Player(client=client, config=config, chat_fn=bound_chat)
 
 
 _AGENT_REGISTRY: dict[EnvironmentName, type[BaseGameAgent]] = {
@@ -140,14 +151,14 @@ def _play_game(
     player_b: Player,
     agent: BaseGameAgent,
 ) -> GameOutcome:
-    """Play a single game and return outcome from model_a's perspective."""
+    """Play a single game with timeout and return outcome from model_a's perspective."""
     game = pyspiel.load_game(instance.game_name, instance.game_params)
     model_b_player_id = 1 - instance.model_a_player_id
 
     bot_a = LLMBot(
         game=game,
         player_id=instance.model_a_player_id,
-        client=player_a.client,
+        chat_fn=player_a.chat_fn,
         config=player_a.config,
         agent=agent,
         rng_seed=instance.seed + instance.model_a_player_id,
@@ -155,7 +166,7 @@ def _play_game(
     bot_b = LLMBot(
         game=game,
         player_id=model_b_player_id,
-        client=player_b.client,
+        chat_fn=player_b.chat_fn,
         config=player_b.config,
         agent=agent,
         rng_seed=instance.seed + model_b_player_id,
@@ -166,7 +177,7 @@ def _play_game(
     bots[model_b_player_id] = bot_b
 
     state = game.new_initial_state()
-    returns = evaluate_bots.evaluate_bots(state, bots, np.random.RandomState(instance.seed))
+    returns = _evaluate_with_timeout(state, bots, instance.seed)
 
     scoring = GameScoringContext(
         returns=list(returns),
@@ -176,6 +187,30 @@ def _play_game(
         max_utility=instance.max_utility,
     )
     return determine_outcome(scoring)
+
+
+def _evaluate_with_timeout(
+    state: pyspiel.State,
+    bots: list[LLMBot | None],
+    seed: int,
+) -> list[float]:
+    """Run evaluate_bots with a timeout to prevent hangs."""
+
+    def _timeout_handler(signum: int, frame: object) -> None:
+        raise TimeoutError(f"Game exceeded {vcst.PVP_GAME_TIMEOUT_SECONDS}s timeout")
+
+    prev_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(vcst.PVP_GAME_TIMEOUT_SECONDS)
+    try:
+        returns = evaluate_bots.evaluate_bots(state, bots, np.random.RandomState(seed))
+        return list(returns)
+    except TimeoutError:
+        logger.warning("Game timed out after %ds, scoring as draw", vcst.PVP_GAME_TIMEOUT_SECONDS)
+        num_players = state.num_players()
+        return [0.0] * num_players
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, prev_handler)
 
 
 def _tally(result: PvPEnvironmentResult, outcome: GameOutcome) -> None:

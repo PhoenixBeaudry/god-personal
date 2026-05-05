@@ -4,11 +4,18 @@ Defines input configuration and output result contracts.
 """
 
 from enum import Enum
+from typing import Protocol
 
 from pydantic import BaseModel
 from pydantic import Field
 
 from core.constants import EnvironmentName
+
+
+class PvPBaseModel(BaseModel):
+    """Base for PvP models that have fields starting with 'model_'."""
+
+    model_config = {"protected_namespaces": ()}
 
 
 class GameOutcome(str, Enum):
@@ -44,19 +51,17 @@ class GameInstance(BaseModel):
 class PreparedModel(BaseModel):
     """Result of detecting model type and building SGLang flags."""
 
-    model_path: str = Field(description="HF repo ID passed to SGLang --model-path")
+    sglang_model_path: str = Field(description="HF repo ID passed to SGLang --model-path")
     inference_name: str = Field(description="Model name used in chat completion requests")
     extra_sglang_args: str = Field(default="", description="Additional SGLang CLI flags (e.g. LoRA)")
 
 
-class PvPModelSpec(BaseModel):
+class PvPModelSpec(PvPBaseModel):
     """Specification for a model participating in PvP evaluation."""
-
-    model_config = {"protected_namespaces": ()}
 
     repo: str = Field(description="HuggingFace model repository (e.g. 'org/model-name')")
     original_model: str = Field(
-        description="Base model repository, used for LoRA detection and merging"
+        description="Base model repository, used for LoRA detection"
     )
     gpu_id: int | None = Field(default=None, ge=0, description="GPU device ID. Defaults to 0 for model_a, 1 for model_b")
     port: int | None = Field(default=None, gt=0, description="SGLang server port. Defaults to 30000 for model_a, 30001 for model_b")
@@ -71,13 +76,11 @@ class PvPMatchupConfig(BaseModel):
     )
 
 
-class PvPEvalConfig(BaseModel):
+class PvPEvalConfig(PvPBaseModel):
     """Top-level input configuration for a PvP evaluation run.
 
     Loaded from PVP_EVAL_CONFIG env var or /config/pvp_eval.json.
     """
-
-    model_config = {"protected_namespaces": ()}
 
     model_a: PvPModelSpec
     model_b: PvPModelSpec
@@ -88,10 +91,8 @@ class PvPEvalConfig(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
 
 
-class PvPEnvironmentResult(BaseModel):
+class PvPEnvironmentResult(PvPBaseModel):
     """Win/loss/draw result for a single environment."""
-
-    model_config = {"protected_namespaces": ()}
 
     model_a_wins: int = 0
     model_b_wins: int = 0
@@ -117,9 +118,7 @@ class ChatMessage(BaseModel):
 class ChatCompletionConfig(BaseModel):
     """Configuration for calling an OpenAI-compatible chat endpoint."""
 
-    model_config = {"protected_namespaces": ()}
-
-    model: str = Field(description="Model name as registered in the inference server")
+    inference_model: str = Field(description="Model name as registered in the inference server")
     base_url: str = Field(description="OpenAI-compatible API base (e.g. http://localhost:30000/v1)")
     api_key: str = Field(default="dummy", description="API key (SGLang ignores but SDK requires)")
     temperature: float | None = Field(default=None, description="Sampling temperature, None uses server default")
@@ -130,12 +129,16 @@ class ChatCompletionConfig(BaseModel):
 
 
 class ChatResult(BaseModel):
-    """Result from an LLM chat completion during PvP game play."""
+    """Result from an LLM chat completion."""
 
     content: str | None = None
     usage: dict[str, int] | None = None
 
 
+class ChatFn(Protocol):
+    """Protocol for the chat completion callable, enabling DI for testing."""
+
+    def __call__(self, config: ChatCompletionConfig, messages: list[ChatMessage]) -> ChatResult: ...
 
 
 class PvPEvalMetadata(BaseModel):
@@ -147,13 +150,8 @@ class PvPEvalMetadata(BaseModel):
     wall_time_seconds: float = 0.0
 
 
-class PvPEvalResults(BaseModel):
-    """Complete output of a PvP evaluation run.
-
-    Written to /app/pvp_results.json.
-    """
-
-    model_config = {"protected_namespaces": ()}
+class PvPEvalResults(PvPBaseModel):
+    """Complete output of a PvP evaluation run."""
 
     model_a: str
     model_b: str

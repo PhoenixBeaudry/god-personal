@@ -2,29 +2,27 @@
 
 Wraps an LLM inference endpoint as a pyspiel.Bot, maintaining
 conversation history and parsing actions from model responses.
-Uses synchronous OpenAI client since evaluate_bots is synchronous.
+Accepts a ChatFn protocol for testability.
 """
 
 import logging
 import re
 
 import numpy as np
-import openai
 import pyspiel
 
-from core.models.pvp_models import ChatCompletionConfig, ChatMessage, ChatRole
+from core.models.pvp_models import ChatCompletionConfig, ChatFn, ChatMessage, ChatRole
 from validator.core import constants as vcst
 from validator.evaluation.pvp.agents import BaseGameAgent
-from validator.evaluation.pvp.chat import chat_completion
 
 logger = logging.getLogger(__name__)
 
 
 class LLMBot(pyspiel.Bot):
-    """OpenSpiel Bot backed by an LLM via OpenAI-compatible API.
+    """OpenSpiel Bot backed by an LLM via injectable chat function.
 
     Maintains full conversation history per game. On each step(),
-    generates a user prompt from the game state, calls the LLM,
+    generates a user prompt from the game state, calls the chat function,
     and parses an action ID from the response.
     """
 
@@ -32,7 +30,7 @@ class LLMBot(pyspiel.Bot):
         self,
         game: pyspiel.Game,
         player_id: int,
-        client: openai.OpenAI,
+        chat_fn: ChatFn,
         config: ChatCompletionConfig,
         agent: BaseGameAgent,
         rng_seed: int,
@@ -40,7 +38,7 @@ class LLMBot(pyspiel.Bot):
         pyspiel.Bot.__init__(self)
         self._game = game
         self._player_id = player_id
-        self._client = client
+        self._chat_fn = chat_fn
         self._config = config
         self._agent = agent
         self._rng = np.random.RandomState(rng_seed)
@@ -69,7 +67,7 @@ class LLMBot(pyspiel.Bot):
         self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))
 
         for attempt in range(vcst.PVP_BOT_MAX_PARSING_RETRIES + 1):
-            result = chat_completion(self._client, self._config, self._conversation)
+            result = self._chat_fn(self._config, self._conversation)
 
             response_text = result.content or ""
             self._conversation.append(ChatMessage(role=ChatRole.ASSISTANT, content=response_text))
@@ -99,8 +97,7 @@ def _parse_action(response: str, legal_actions: list[int]) -> int | None:
 
     Strategies (in priority order):
     1. Response is purely a number
-    2. Last number in text that is a legal action (avoids matching
-       early mentions like "considering action 3, I pick 13")
+    2. Last number in text that is a legal action
     """
     cleaned = response.strip()
     legal_set = set(legal_actions)

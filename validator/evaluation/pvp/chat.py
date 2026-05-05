@@ -11,6 +11,7 @@ import time
 import openai
 
 from core.models.pvp_models import ChatCompletionConfig, ChatMessage, ChatResult
+from validator.core import constants as vcst
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def _with_retries(
         except (TimeoutError, openai.APITimeoutError, openai.APIConnectionError) as exc:
             last_exc = exc
             if attempt < attempts - 1:
-                wait = min(2**attempt, 32)
+                wait = min(2**attempt, vcst.PVP_RETRY_BACKOFF_CAP_SECONDS)
                 logger.warning(
                     "Chat attempt %d/%d failed (%s), retrying in %ds",
                     attempt + 1, attempts, type(exc).__name__, wait,
@@ -73,7 +74,7 @@ def _with_retries(
         except openai.APIStatusError as exc:
             if exc.status_code >= 500 and attempt < attempts - 1:
                 last_exc = exc
-                time.sleep(min(2**attempt, 32))
+                time.sleep(min(2**attempt, vcst.PVP_RETRY_BACKOFF_CAP_SECONDS))
                 continue
             raise
 
@@ -89,7 +90,7 @@ def _call(
     messages_dicts = [msg.model_dump() for msg in messages]
 
     response = client.chat.completions.create(
-        model=config.model,
+        model=config.inference_model,
         messages=messages_dicts,
         temperature=config.temperature,
         seed=config.seed,
