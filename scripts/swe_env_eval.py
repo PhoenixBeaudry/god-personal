@@ -7,14 +7,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-14B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_MODEL_REVISION = None
 LORA_MODEL_NAME = None # Put the name of your repo containing the LORA here
 LORA_MODEL_REVISION = None
 LOCAL_LORA_PATH = None
 
 # --- Evaluation Configuration ---
-NUM_EVALS = 25
+NUM_EVALS = 100
 TEMPERATURE = 0.0
 AGENT_TYPE = "miniswe"              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
