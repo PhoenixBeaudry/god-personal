@@ -17,6 +17,7 @@ import openai
 from core.constants import EnvironmentName
 from core.models.pvp_models import (
     ChatCompletionConfig,
+    FullWeightContestants,
     PvPEnvironmentResult,
     PvPEvalConfig,
     PvPEvalMetadata,
@@ -40,10 +41,39 @@ def run_group_evaluation(config: PvPEvalConfig) -> PvPGroupResults:
         raise ValueError("Group mode requires 'models' and 'base_model' fields")
 
     start_time = time.time()
-    models = config.models
     base_model = config.base_model
 
-    lora_names = _detect_lora_names(models)
+    lora_names = _detect_lora_names(config.models)
+
+    full_weight_specs = [m for m in config.models if not lora_names[m.repo]]
+    lora_specs = [m for m in config.models if lora_names[m.repo]]
+
+    full_weight_fallbacks: FullWeightContestants | None = None
+    if full_weight_specs:
+        full_weight_fallbacks = FullWeightContestants(
+            hotkeys=[m.hotkey for m in full_weight_specs],
+            repos=[m.repo for m in full_weight_specs],
+        )
+        logger.warning(
+            "%d full-weight model(s) excluded from group eval, need 1v1 fallback: %s",
+            len(full_weight_specs), [m.hotkey for m in full_weight_specs],
+        )
+
+    if len(lora_specs) < 2:
+        logger.warning("Fewer than 2 LoRA models — no group matchups to play")
+        return PvPGroupResults(
+            base_model=base_model,
+            hotkeys=[m.hotkey for m in config.models],
+            pair_results=[],
+            full_weight_fallbacks=full_weight_fallbacks,
+            metadata=PvPEvalMetadata(
+                seed=config.seed,
+                temperature=config.temperature,
+                wall_time_seconds=time.time() - start_time,
+            ),
+        )
+
+    models = lora_specs
     multi_lora_args = _build_multi_lora_args(lora_names)
 
     sglang_a: subprocess.Popen | None = None
@@ -92,8 +122,9 @@ def run_group_evaluation(config: PvPEvalConfig) -> PvPGroupResults:
 
         return PvPGroupResults(
             base_model=base_model,
-            hotkeys=[m.hotkey for m in models],
+            hotkeys=[m.hotkey for m in config.models],
             pair_results=pair_results,
+            full_weight_fallbacks=full_weight_fallbacks,
             metadata=PvPEvalMetadata(
                 seed=config.seed,
                 temperature=config.temperature,

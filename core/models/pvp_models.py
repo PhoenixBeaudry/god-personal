@@ -191,10 +191,25 @@ class PvPPairResult(PvPBaseModel):
     results: dict[EnvironmentName, PvPEnvironmentResult]
 
 
+class FullWeightContestants(BaseModel):
+    """Signal that some contestants submitted full weights instead of LoRA.
+
+    These cannot participate in multi-LoRA group evaluation and need
+    1v1 fallback in the tournament orchestrator.
+    """
+
+    hotkeys: list[str] = Field(description="Hotkeys of contestants with full-weight submissions")
+    repos: list[str] = Field(description="Corresponding repo IDs")
+
+
 class PvPGroupResults(PvPBaseModel):
     """Complete output of a group round-robin evaluation."""
 
     base_model: str
     hotkeys: list[str]
     pair_results: list[PvPPairResult]
+    full_weight_fallbacks: FullWeightContestants | None = Field(
+        default=None,
+        description="Present if any contestants were excluded due to full-weight submissions",
+    )
     metadata: PvPEvalMetadata
