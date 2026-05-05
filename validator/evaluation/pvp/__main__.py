@@ -155,7 +155,7 @@ def _run_evaluation(config: PvPEvalConfig) -> PvPEvalResults:
 
 
 def _write_results(results: PvPEvalResults) -> None:
-    results_path = Path(vcst.PVP_RESULTS_PATH)
+    results_path = Path(os.getenv("PVP_RESULTS_PATH", vcst.PVP_RESULTS_PATH))
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(results.model_dump_json(indent=2))
     logger.info("Results written to %s", results_path)
