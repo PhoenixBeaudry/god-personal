@@ -242,6 +242,13 @@ class TournamentScore(BaseModel):
     score: float
 
 
+class GroupStagePoints(BaseModel):
+    """Per-hotkey points from a single PvP group stage evaluation."""
+
+    hotkey: str
+    points: float
+
+
 class TournamentTypeResult(BaseModel):
     scores: list[TournamentScore]
     prev_winner_hotkey: str | None

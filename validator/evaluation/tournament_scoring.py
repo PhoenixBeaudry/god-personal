@@ -1,5 +1,7 @@
 
 import validator.core.constants as cts
+from core.models.pvp_models import PvPGroupResults
+from core.models.tournament_models import GroupStagePoints
 from core.models.tournament_models import TournamentResultsWithWinners
 from core.models.tournament_models import TournamentScore
 from core.models.tournament_models import TournamentType
@@ -9,6 +11,33 @@ from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def compute_pvp_tournament_points(group_results: PvPGroupResults) -> list[GroupStagePoints]:
+    """Convert PvP group round-robin results into per-hotkey tournament points.
+
+    For each pair x each environment:
+      - Strict majority wins = PVP_ENV_WIN_POINTS (3)
+      - Draw = PVP_ENV_DRAW_POINTS (1)
+      - Loss = PVP_ENV_LOSS_POINTS (0)
+
+    Returns list sorted by points descending.
+    """
+    standings = [GroupStagePoints(hotkey=hotkey, points=0.0) for hotkey in group_results.hotkeys]
+    points_by_hotkey = {s.hotkey: s for s in standings}
+
+    for pair in group_results.pair_results:
+        for env_result in pair.results.values():
+            if env_result.model_a_wins > env_result.model_b_wins:
+                points_by_hotkey[pair.hotkey_a].points += cts.PVP_ENV_WIN_POINTS
+            elif env_result.model_b_wins > env_result.model_a_wins:
+                points_by_hotkey[pair.hotkey_b].points += cts.PVP_ENV_WIN_POINTS
+            else:
+                points_by_hotkey[pair.hotkey_a].points += cts.PVP_ENV_DRAW_POINTS
+                points_by_hotkey[pair.hotkey_b].points += cts.PVP_ENV_DRAW_POINTS
+
+    standings.sort(key=lambda s: s.points, reverse=True)
+    return standings
 
 
 def calculate_tournament_type_scores_from_data(

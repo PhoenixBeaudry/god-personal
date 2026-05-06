@@ -21,7 +21,13 @@ IS_PROD_ENV = NETUID == DEFAULT_NETUID
 VALIDATOR_DOCKER_IMAGE = "gradientsio/text-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_DIFFUSION = "gradientsio/image-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_ENV = "gradientsio/env-evaluator:basilica"
+VALIDATOR_DOCKER_IMAGE_PVP = "gradientsio/pvp-evaluator:basilica"
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
+
+
+class EvalType(str, Enum):
+    MCTS = "mcts"
+    PVP = "pvp"
 
 
 class EnvironmentName(str, Enum):
@@ -36,8 +42,9 @@ class EnvironmentConfig:
     task_id_max: int
     num_seeds: int
     num_baseline_episodes: int
-    env_image: str
-    eval_payload_extra: dict
+    eval_type: EvalType
+    env_image: str = ""
+    eval_payload_extra: dict | None = None
 
 
 ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
@@ -46,39 +53,21 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=299_999_999,
         num_seeds=2000,
         num_baseline_episodes=50,
-        env_image=MCTS_API_DOCKER_IMAGE,
-        eval_payload_extra={
-            "opponent": "mcts",
-            "mcts_max_simulations": 50,
-            "mcts_num_rollouts": 1,
-            "api_key": "dummy-key",
-        },
+        eval_type=EvalType.PVP,
     ),
     EnvironmentName.LIARS_DICE: EnvironmentConfig(
         task_id_min=100_000_000,
         task_id_max=199_999_999,
         num_seeds=10_000,
         num_baseline_episodes=50,
-        env_image=MCTS_API_DOCKER_IMAGE,
-        eval_payload_extra={
-            "opponent": "mcts",
-            "mcts_max_simulations": 225,
-            "mcts_num_rollouts": 1,
-            "api_key": "dummy-key",
-        },
+        eval_type=EvalType.PVP,
     ),
     EnvironmentName.GIN_RUMMY: EnvironmentConfig(
         task_id_min=300_000_000,
         task_id_max=399_999_999,
         num_seeds=1000,
         num_baseline_episodes=25,
-        env_image=MCTS_API_DOCKER_IMAGE,
-        eval_payload_extra={
-            "opponent": "mcts",
-            "mcts_max_simulations": 50,
-            "mcts_num_rollouts": 1,
-            "api_key": "dummy-key",
-        },
+        eval_type=EvalType.PVP,
     ),
 }
 
