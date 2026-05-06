@@ -318,7 +318,6 @@ def run_evaluation(base_seed):
                 "api_key": api_key,
                 "timeout": EVAL_TIMEOUT,
                 "temperature": TEMPERATURE,
-                "seed": task_id,
                 "agent": AGENT_TYPE,
                 "max_iterations": MAX_ITERATIONS,
             }
