@@ -48,42 +48,51 @@ def detect_and_merge_lora(model_id: str, hf_token: str) -> ModelPrepResult:
 
     print(f"LoRA adapter detected: {model_id}", flush=True)
 
-    config_path = hf_hub_download(model_id, cst.LORA_ADAPTER_CONFIG_FILE, token=hf_token)
-    with open(config_path) as f:
-        adapter_config = json.load(f)
+    try:
+        config_path = hf_hub_download(model_id, cst.LORA_ADAPTER_CONFIG_FILE, token=hf_token)
+        with open(config_path) as f:
+            adapter_config = json.load(f)
 
-    base_model_id = adapter_config.get("base_model_name_or_path")
-    if not base_model_id:
-        print("WARNING: adapter_config missing base_model_name_or_path, loading as-is", flush=True)
+        base_model_id = adapter_config.get("base_model_name_or_path")
+        if not base_model_id:
+            print("WARNING: adapter_config missing base_model_name_or_path, loading as-is", flush=True)
+            return ModelPrepResult(effective_model_path=model_id)
+
+        print(f"Merging LoRA into base: {base_model_id}", flush=True)
+
+        base_model = AutoModelForCausalLM.from_pretrained(
+            base_model_id, torch_dtype=torch.float16, token=hf_token,
+            device_map="cuda:0" if torch.cuda.is_available() else "auto",
+        )
+        base_tokenizer = AutoTokenizer.from_pretrained(base_model_id, token=hf_token)
+        lora_tokenizer = AutoTokenizer.from_pretrained(model_id, token=hf_token)
+
+        if len(lora_tokenizer) > base_model.get_input_embeddings().weight.shape[0]:
+            base_model.resize_token_embeddings(len(lora_tokenizer))
+
+        merged = PeftModel.from_pretrained(base_model, model_id, token=hf_token)
+        merged = merged.merge_and_unload(safe_merge=False)
+
+        merge_dir = "/tmp/merged_model"
+        os.makedirs(merge_dir, exist_ok=True)
+        merged.save_pretrained(merge_dir, safe_serialization=True)
+        target_tokenizer = lora_tokenizer if len(lora_tokenizer) >= len(base_tokenizer) else base_tokenizer
+        target_tokenizer.save_pretrained(merge_dir)
+
+        # Free merge memory before main() reloads from disk
+        del base_model, merged
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        print(f"LoRA merge complete → {merge_dir}", flush=True)
+        return ModelPrepResult(
+            effective_model_path=merge_dir,
+            base_model_id=base_model_id,
+            was_lora=True,
+        )
+    except Exception as exc:
+        print(f"WARNING: LoRA merge failed ({exc}), falling back to full-weight loading", flush=True)
         return ModelPrepResult(effective_model_path=model_id)
-
-    print(f"Merging LoRA into base: {base_model_id}", flush=True)
-
-    base_model = AutoModelForCausalLM.from_pretrained(
-        base_model_id, torch_dtype=torch.float16, token=hf_token,
-        device_map="cuda:0" if torch.cuda.is_available() else "auto",
-    )
-    base_tokenizer = AutoTokenizer.from_pretrained(base_model_id, token=hf_token)
-    lora_tokenizer = AutoTokenizer.from_pretrained(model_id, token=hf_token)
-
-    if len(lora_tokenizer) > base_model.get_input_embeddings().weight.shape[0]:
-        base_model.resize_token_embeddings(len(lora_tokenizer))
-
-    merged = PeftModel.from_pretrained(base_model, model_id, token=hf_token)
-    merged = merged.merge_and_unload(safe_merge=False)
-
-    merge_dir = "/tmp/merged_model"
-    os.makedirs(merge_dir, exist_ok=True)
-    merged.save_pretrained(merge_dir, safe_serialization=True)
-    target_tokenizer = lora_tokenizer if len(lora_tokenizer) >= len(base_tokenizer) else base_tokenizer
-    target_tokenizer.save_pretrained(merge_dir)
-
-    print(f"LoRA merge complete → {merge_dir}", flush=True)
-    return ModelPrepResult(
-        effective_model_path=merge_dir,
-        base_model_id=base_model_id,
-        was_lora=True,
-    )
 
 
 def parse_args():
