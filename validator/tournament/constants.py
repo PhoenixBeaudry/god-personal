@@ -49,6 +49,8 @@ ENV_ROUND_3_CANDIDATE_COUNT = 2
 ENV_TOTAL_ROUNDS = 4
 ENV_FINAL_ROUND_TASK_COUNT = 3
 ENV_ENVS_PER_ROUND_MULTIPLIER = 2  # R1=2, R2=4, R3=6 (capped at total available)
+ENV_TRAINING_HOURS_BY_ROUND: dict[int, float] = {1: 1.5, 2: 2.0, 3: 2.5, 4: 3.0}
+ENV_TRAINING_HOURS_DEFAULT = 3.0
 # If set, forces this game to be the boss (final) round task and excludes it from earlier rounds.
 # Set to None to let any game randomly be the boss round.
 FORCED_BOSS_ENVIRONMENT: EnvironmentName | None = None

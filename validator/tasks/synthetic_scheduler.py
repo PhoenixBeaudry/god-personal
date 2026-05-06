@@ -33,6 +33,7 @@ from validator.core.models import RewardFunction
 from validator.db.sql import grpo as grpo_sql
 from validator.db.sql.grpo import get_generic_reward_functions_from_db
 from validator.db.sql.tasks import add_task
+from validator.tournament import constants as t_cst
 from validator.utils.augmentation_decision import maybe_get_augmentation_config
 from validator.utils.call_endpoint import call_content_service
 from validator.utils.llm import convert_to_nineteen_payload
@@ -219,8 +220,8 @@ def _get_training_hours_from_num_rows(num_rows: int) -> tuple[int, int]:
     return random.randint(min_hours, max_hours)
 
 
-def _get_training_hours_for_environment_task() -> int:
-    return 3
+def _get_training_hours_for_environment_task(round_number: int = 1) -> float:
+    return t_cst.ENV_TRAINING_HOURS_BY_ROUND.get(round_number, t_cst.ENV_TRAINING_HOURS_DEFAULT)
 
 
 async def get_dataset(
@@ -437,11 +438,12 @@ async def create_synthetic_env_task(
     datasets: AsyncGenerator[Dataset, None],
     num_environments: int = 1,
     exclude_environments: list[EnvironmentName] | None = None,
+    round_number: int = 1,
 ) -> RawTask:
     model_id = random.choice(SUPPORTED_ENV_MODELS)
     dummy_dataset = "env_task_dummy_dataset"
 
-    number_of_hours = _get_training_hours_for_environment_task()
+    number_of_hours = _get_training_hours_for_environment_task(round_number)
     current_time = datetime.utcnow()
     end_timestamp = current_time + timedelta(hours=number_of_hours)
 

@@ -121,7 +121,8 @@ async def _create_environment_group_tasks(
 
     while len(tasks) < expected_task_count:
         task = await create_synthetic_env_task(
-            config, models, instruct_datasets, num_environments=num_envs,
+            config, models, instruct_datasets,
+            num_environments=num_envs, round_number=round_data.round_number,
         )
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
