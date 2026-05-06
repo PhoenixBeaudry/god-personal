@@ -16,7 +16,7 @@ LOCAL_LORA_PATH = None
 # --- Evaluation Configuration ---
 NUM_EVALS = 100
 TEMPERATURE = 0.0
-AGENT_TYPE = "miniswe"              # "miniswe", "codex", or "" for auto-select
+AGENT_TYPE = "codex"              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
 EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
@@ -207,7 +207,7 @@ def run_evaluation(base_seed):
             payload = {
                 "task_id": task_id,
                 "model": inference_model_name,
-                "base_url": f"http://sglang-server:{SGLANG_PORT}/v1",
+                "base_url": "http://172.17.0.1:30000/v1",
                 "api_key": "test",
                 "timeout": EVAL_TIMEOUT,
                 "temperature": TEMPERATURE,
