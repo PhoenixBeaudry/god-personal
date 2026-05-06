@@ -993,11 +993,10 @@ async def get_environment_group_winners(
         return []
 
     sorted_participants = sorted(participant_scores.items(), key=lambda x: x[1], reverse=True)
-    non_boss_sorted = [hotkey for hotkey, _ in sorted_participants if hotkey != boss_hotkey]
+    non_boss_sorted = [(hotkey, score) for hotkey, score in sorted_participants if hotkey != boss_hotkey]
 
     if completed_round.round_number == (t_cst.ENV_TOTAL_ROUNDS - 1):
-        # Pre-final gate (current R3): select one best contender by cumulative boss-wins.
-        candidate_hotkeys = non_boss_sorted[: t_cst.ENV_ROUND_3_CANDIDATE_COUNT]
+        candidate_hotkeys = [h for h, _ in non_boss_sorted[: t_cst.ENV_ROUND_3_CANDIDATE_COUNT]]
         tournament = await get_tournament(completed_round.tournament_id, psql_db)
         if not tournament:
             logger.warning(f"Could not load tournament {completed_round.tournament_id} for contender selection")
@@ -1013,11 +1012,15 @@ async def get_environment_group_winners(
     elif completed_round.round_number == 2:
         top_to_advance = t_cst.ENV_ROUND_2_ADVANCE_COUNT
     else:
-        # Round 3 is handled above via explicit contender-selection logic.
-        # Any unexpected non-final env round defaults to advancing one contender.
         top_to_advance = 1
 
-    winners = non_boss_sorted[: min(top_to_advance, len(non_boss_sorted))]
+    # Advance top N, plus anyone tied with the Nth person's score
+    if len(non_boss_sorted) <= top_to_advance:
+        winners = [h for h, _ in non_boss_sorted]
+    else:
+        cutoff_score = non_boss_sorted[top_to_advance - 1][1]
+        winners = [h for h, s in non_boss_sorted if s >= cutoff_score]
+
     logger.info(f"Environment round {completed_round.round_number}: advancing {len(winners)} non-boss winners: {winners}")
     return winners
 
