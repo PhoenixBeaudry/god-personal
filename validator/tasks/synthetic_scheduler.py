@@ -15,6 +15,7 @@ from core.models.payload_models import ImageModelInfo
 from core.models.payload_models import ImageModelsResponse
 from core.models.payload_models import InstructTextDatasetColumnsResponse
 from core.constants import EnvironmentName
+from core.constants import TrainingStartPoint
 from core.models.tournament_models import EnvironmentWeight
 from core.models.utility_models import FileFormat
 from core.models.utility_models import Message
@@ -441,6 +442,8 @@ async def create_synthetic_env_task(
     round_number: int = 1,
     model_id_override: str | None = None,
     training_start_point: TrainingStartPoint = TrainingStartPoint.DEFAULT,
+    environment_names_override: list[EnvironmentName] | None = None,
+    eval_seed_override: int | None = None,
 ) -> RawTask:
     model_id = model_id_override or random.choice(SUPPORTED_ENV_MODELS)
     dummy_dataset = "env_task_dummy_dataset"
@@ -449,12 +452,15 @@ async def create_synthetic_env_task(
     current_time = datetime.utcnow()
     end_timestamp = current_time + timedelta(hours=number_of_hours)
 
-    all_envs = list(EnvironmentName)
-    candidates = [g for g in all_envs if g not in (exclude_environments or [])]
-    count = min(num_environments, len(candidates))
-    selected_environments = random.sample(candidates, count) if candidates else []
+    if environment_names_override:
+        selected_environments = environment_names_override
+    else:
+        all_envs = list(EnvironmentName)
+        candidates = [g for g in all_envs if g not in (exclude_environments or [])]
+        count = min(num_environments, len(candidates))
+        selected_environments = random.sample(candidates, count) if candidates else []
 
-    eval_seed = random.randint(0, 2**31 - 1)
+    eval_seed = eval_seed_override if eval_seed_override is not None else random.randint(0, 2**31 - 1)
 
     augmentation_config = maybe_get_augmentation_config(TaskType.ENVIRONMENTTASK)
     weights = [EnvironmentWeight(environment=env) for env in selected_environments]
@@ -473,6 +479,7 @@ async def create_synthetic_env_task(
         account_id=vcst.NULL_ACCOUNT_ID,
         yarn_factor=None,
         augmentation_config=augmentation_config,
+        training_start_point=training_start_point,
     )
     logger.info(
         f"New Environment task: {len(selected_environments)} envs={[e.value for e in selected_environments]}, "

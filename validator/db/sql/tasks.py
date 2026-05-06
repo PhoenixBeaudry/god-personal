@@ -68,8 +68,9 @@ async def _insert_base_task(connection: Connection, task: AnyTypeRawTask) -> dic
         {cst.YARN_FACTOR},
         {cst.AUGMENTATION_CONFIG},
         {cst.AUGMENTED_MODEL_ID},
-        {cst.BASELINE_STATS})
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        {cst.BASELINE_STATS},
+        {cst.TRAINING_START_POINT})
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         RETURNING *
     """
     return await connection.fetchrow(
@@ -93,6 +94,7 @@ async def _insert_base_task(connection: Connection, task: AnyTypeRawTask) -> dic
         json.dumps(task.augmentation_config.model_dump()) if task.augmentation_config else None,
         task.augmented_model_id,
         json.dumps(task.baseline_stats.model_dump()) if task.baseline_stats else None,
+        task.training_start_point.value,
     )
 
 

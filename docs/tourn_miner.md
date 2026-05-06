@@ -415,11 +415,12 @@ Tournaments run continuously with 4-7 day duration and 72-hour gaps between tour
 
 **Environment Tournaments:**
 
-- All participants (including boss) compete in a single large group
-- Minimum 5 participants required to start
-- All participants compete on the same environment task
-- Only one round (group stage) - no knockout rounds
-- One winner selected based on highest GRPO score
+- Participants are split into groups of up to 6 (see `MAX_ENVIRONMENT_GROUP_SIZE` in `validator/tournament/constants.py`)
+- Boss (defending champion) is added to every group's evaluation
+- All groups in a round receive the same task configuration (environments, model, seed)
+- Each group is evaluated independently via PvP head-to-head play
+- Top 2 per group advance each round (at least 1 eliminated per group to guarantee convergence)
+- Group rounds repeat until 1 contender remains, then the boss round is triggered
 
 ### Knockout Rounds
 
@@ -431,7 +432,7 @@ Tournaments run continuously with 4-7 day duration and 72-hour gaps between tour
 
 **Environment Tournaments:**
 
-- No knockout rounds - tournament ends after group stage
+- No knockout rounds — group rounds continue until 1 contender remains, then boss round
 
 ### Boss Round
 
@@ -444,10 +445,9 @@ Tournaments run continuously with 4-7 day duration and 72-hour gaps between tour
 
 **Environment Tournaments:**
 
-- Boss (defending champion) competes directly in the single group stage
-- Uses progressive threshold system: challengers must beat `boss_score * (1 + threshold_percentage)` to be eligible
-- Winner is the participant with the highest GRPO score among eligible participants
-- If no challenger beats the threshold, boss retains title automatically
+- The single remaining contender faces the boss in a boss round with 3 tasks, each with a different training starting point (continuation, from-scratch, previous winner's model)
+- Contender must beat the boss on **all 3 tasks** (strictly higher PvP tournament points)
+- If the contender fails any task, the boss retains the title
 
 #### Championship Defense Thresholds
 
@@ -494,32 +494,34 @@ This system ensures:
 
 ## Environment Tournaments
 
-Environment tournaments are a specialized tournament type focused on reinforcement learning with environment interactions.
+Environment tournaments are a specialized tournament type focused on reinforcement learning with environment interactions, evaluated via PvP (Player-vs-Player) head-to-head play.
 
-### Key Differences
+### Tournament Flow
 
-- **Single Round Structure**: Only one group stage round (no knockout rounds)
-- **All Participants Together**: Boss and all participants compete in a single large group on the same task
-- **Minimum Participants**: Requires at least 5 participants (vs 8 for text/image tournaments)
+1. **Group Stage**: Participants are split into groups of up to 6. Each group plays PvP round-robin across multiple game environments. Top 2 per group advance. Group rounds repeat until 1 contender remains.
+2. **Boss Round**: The final contender faces the defending champion on 3 tasks with different training starting conditions (continuation from previous round, from-scratch, and previous winner's model). The contender must beat the boss on all 3 tasks to win.
+3. **Model Continuation**: In rounds 2+, miners continue training from their previous round's output model, building on their work across rounds.
+
+### Key Parameters
+
 - **Participation Fee**: 0.20 TAO per tournament
 - **Schedule**: Starts every Monday at 14:00 UTC
+- **Group Size**: Up to 6 per group (see `MAX_ENVIRONMENT_GROUP_SIZE` in `validator/tournament/constants.py`)
+- **Environments per Task**: Scales with round number (R1=2, R2=4, R3=6, etc.)
+- **Training Hours**: Scale with round number (see `ENV_TRAINING_HOURS_BY_ROUND` in `validator/tournament/constants.py`)
+- **Supported Environments**: See `ENVIRONMENT_CONFIGS` in [`core/constants.py`](../core/constants.py)
 
 ### Scoring System
 
-- **GRPO-Based**: Uses Group Relative Policy Optimization scoring where **higher scores are better**
-- **Progressive Threshold**: Defending champion benefits from progressive threshold (same system as text/image tournaments)
-  - Challengers must beat: `boss_score * (1 + threshold_percentage)` to be eligible
-  - If no challenger beats threshold, boss automatically wins
-- **Winner Selection**: Highest GRPO score among eligible participants wins
+- **PvP Tournament Points**: Models play head-to-head via OpenSpiel. Per environment: 3 points for a win, 1 for a draw, 0 for a loss. Higher total points = better.
+- **Weight Setting**: Performance margin derived from win percentage across boss round tasks. Only dominant wins earn emission boost above the base weight.
 
 ### Technical Requirements
 
 - **Rollout Functions**: Must implement custom rollout functions for environment interaction
 - **Environment Servers**: Environment servers are provisioned during training (typically one per GPU)
 - **Environment Variable**: Server URLs provided via `ENVIRONMENT_SERVER_URLS` environment variable
-- **Evaluation**: Post-training evaluation uses 250 episodes to determine final scores
-
-For detailed information on implementing environment tasks, see the [Environment Tasks documentation](environment_tasks.md).
+- **Evaluation**: Post-training, models are evaluated via PvP head-to-head play across the task's environments. See the [Environment Tasks documentation](environment_tasks.md) for details.
 
 ## Reference Implementation
 

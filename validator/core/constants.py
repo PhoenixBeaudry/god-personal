@@ -425,6 +425,8 @@ PVP_ENV_WIN_POINTS = 3
 PVP_ENV_DRAW_POINTS = 1
 PVP_ENV_LOSS_POINTS = 0
 PVP_NUM_GAMES_PER_ENV = 150
+PVP_WIN_PCT_THRESHOLD = 0.60
+PVP_PERF_DIFF_SLOPE = 0.125  # Linear map: 60% win rate → emission threshold, 100% → max boost
 
 # PvP Basilica deployment
 PVP_BASILICA_TTL_SECONDS = 28800

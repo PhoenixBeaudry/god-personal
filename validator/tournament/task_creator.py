@@ -1,6 +1,7 @@
 import random
 
 from core.constants import EnvironmentName
+from core.constants import TrainingStartPoint
 from core.models.tournament_models import GroupRound
 from core.models.tournament_models import TournamentType
 from core.models.tournament_models import KnockoutRound
@@ -16,7 +17,6 @@ from validator.core.models import RawTask
 from validator.db.sql import tasks as task_sql
 from validator.db.sql.tournaments import add_tournament_tasks
 from validator.db.sql.tournaments import get_latest_completed_tournament
-from validator.db.sql.tournaments import get_tournament_rounds
 from validator.db.sql.tournaments import get_tournament_tasks
 from validator.tasks.diffusion_synth import create_synthetic_image_task
 from validator.tasks.synthetic_scheduler import _get_dpo_datasets
@@ -132,14 +132,20 @@ async def _create_environment_boss_round_tasks(
     tasks: list[RawTask] = await _get_existing_tasks(existing_tasks, config) if existing_tasks else []
 
     task_3_model = await _get_final_task_3_model(tournament_id, config)
-    task_model_overrides = [None, None, task_3_model]
+
+    boss_task_configs = [
+        (None, TrainingStartPoint.CONTINUATION),
+        (None, TrainingStartPoint.FROM_SCRATCH),
+        (task_3_model, TrainingStartPoint.PREVIOUS_WINNER),
+    ]
 
     for i in range(len(tasks), t_cst.ENV_FINAL_ROUND_TASK_COUNT):
-        override = task_model_overrides[i] if i < len(task_model_overrides) else None
+        model_override, start_point = boss_task_configs[i]
         task = await create_synthetic_env_task(
             config, models, instruct_datasets,
             num_environments=num_envs, round_number=round_data.round_number,
-            model_id_override=override,
+            model_id_override=model_override,
+            training_start_point=start_point,
         )
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
@@ -149,65 +155,58 @@ async def _create_environment_boss_round_tasks(
 
 
 async def _create_environment_group_tasks(
-    round_data: GroupRound, tournament_id: str, config: Config, is_final_round: bool = False,
+    round_data: GroupRound, tournament_id: str, config: Config,
 ) -> list[RawTask]:
-    """
-    Create environment task(s) for all participants. Each task contains multiple
-    environments — the count scales with round number (R1=2, R2=4, R3=6, capped
-    at available environments).
-    """
+    """Create one environment task per group. Each task has the same parameters
+    (num_envs, round_number, training_start_point) but an independent group_id."""
     round_id = round_data.round_id
     num_envs = round_data.round_number * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
     num_envs = min(num_envs, len(EnvironmentName))
-    expected_task_count = t_cst.ENV_FINAL_ROUND_TASK_COUNT if is_final_round else 1
+    start_point = TrainingStartPoint.CONTINUATION if round_data.round_number > 1 else TrainingStartPoint.DEFAULT
+
     logger.info(
         f"Creating environment tournament R{round_data.round_number} with {len(round_data.groups)} groups - "
-        f"{expected_task_count} task(s), {num_envs} envs per task"
+        f"1 task per group, {num_envs} envs per task"
     )
-
-    existing_tasks = await _get_existing_tasks_by_identifier(round_id, config)
-
-    if len(existing_tasks) >= expected_task_count:
-        logger.info(
-            f"Environment tournament round {round_id} already has {len(existing_tasks)} task(s), "
-            "skipping task creation"
-        )
-        return await _get_existing_tasks(existing_tasks, config)
 
     models = _get_text_models(config.keypair)
     instruct_datasets = _get_instruct_text_datasets(config.keypair)
+    tasks: list[RawTask] = []
+    reference_task: RawTask | None = None
 
-    logger.info(f"Creating {expected_task_count - len(existing_tasks)} environment task(s) for all participants")
+    for i, _group in enumerate(round_data.groups):
+        group_id = f"{round_id}_group_{i + 1:03d}"
 
-    group_id = f"{round_id}_group_001"
-    tasks: list[RawTask] = await _get_existing_tasks(existing_tasks, config) if existing_tasks else []
+        existing_tasks = await _get_existing_tasks_by_identifier(round_id, config, group_id=group_id)
+        if existing_tasks:
+            existing = await _get_existing_tasks(existing_tasks, config)
+            tasks.extend(existing)
+            if not reference_task and existing:
+                reference_task = existing[0]
+            continue
 
-    while len(tasks) < expected_task_count:
-        task = await create_synthetic_env_task(
-            config, models, instruct_datasets,
-            num_environments=num_envs, round_number=round_data.round_number,
-        )
+        if reference_task:
+            task = await create_synthetic_env_task(
+                config, models, instruct_datasets,
+                num_environments=num_envs, round_number=round_data.round_number,
+                training_start_point=start_point,
+                model_id_override=reference_task.model_id,
+                environment_names_override=reference_task.environment_names,
+                eval_seed_override=reference_task.eval_seed,
+            )
+        else:
+            task = await create_synthetic_env_task(
+                config, models, instruct_datasets,
+                num_environments=num_envs, round_number=round_data.round_number,
+                training_start_point=start_point,
+            )
+            reference_task = task
+
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
 
-    created_ids = [str(task.task_id) for task in tasks]
-    logger.info(f"Created environment tournament task(s) for all participants: {created_ids}")
+    logger.info(f"Created {len(tasks)} environment tasks for {len(round_data.groups)} groups: {[str(t.task_id) for t in tasks]}")
     return tasks
-
-
-async def _get_previous_round_environment_names(tournament_id: str, config: Config) -> list[EnvironmentName]:
-    """Look up the environment_names used in all prior rounds, so we don't repeat games."""
-    rounds = await get_tournament_rounds(tournament_id, config.psql_db)
-    env_names: list[EnvironmentName] = []
-    for round_data in rounds:
-        tasks = await get_tournament_tasks(round_data.round_id, config.psql_db)
-        for tournament_task in tasks:
-            task_obj = await task_sql.get_task(tournament_task.task_id, config.psql_db)
-            if task_obj and hasattr(task_obj, "environment_names") and task_obj.environment_names:
-                env_names.extend(task_obj.environment_names)
-    if env_names:
-        logger.info(f"Previous rounds used environments: {env_names}")
-    return env_names
 
 
 async def _create_group_image_tasks(

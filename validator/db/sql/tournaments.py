@@ -187,7 +187,7 @@ async def get_tournament(tournament_id: str, psql_db: PSQLDB) -> TournamentData 
         query = f"""
             SELECT {cst.TOURNAMENT_ID}, {cst.TOURNAMENT_TYPE}, {cst.TOURNAMENT_STATUS},
                    {cst.BASE_WINNER_HOTKEY}, {cst.WINNER_HOTKEY}, {cst.WINNING_PERFORMANCE_DIFFERENCE},
-                   {cst.DIFF_REPORT}
+                   {cst.DIFF_REPORT}, {cst.WINNER_MODEL_REPO}, {cst.WINNER_MODEL_BASE}
             FROM {cst.TOURNAMENTS_TABLE}
             WHERE {cst.TOURNAMENT_ID} = $1
         """
@@ -201,6 +201,8 @@ async def get_tournament(tournament_id: str, psql_db: PSQLDB) -> TournamentData 
                 winner_hotkey=result[cst.WINNER_HOTKEY],
                 winning_performance_difference=result[cst.WINNING_PERFORMANCE_DIFFERENCE],
                 diff_report=result[cst.DIFF_REPORT],
+                winner_model_repo=result[cst.WINNER_MODEL_REPO],
+                winner_model_base=result[cst.WINNER_MODEL_BASE],
             )
         return None
 
@@ -293,7 +295,7 @@ async def get_latest_completed_tournament(
         query = f"""
             SELECT {cst.TOURNAMENT_ID}, {cst.TOURNAMENT_TYPE}, {cst.TOURNAMENT_STATUS},
                    {cst.BASE_WINNER_HOTKEY}, {cst.WINNER_HOTKEY}, {cst.WINNING_PERFORMANCE_DIFFERENCE},
-                   {cst.DIFF_REPORT}, {cst.UPDATED_AT}
+                   {cst.DIFF_REPORT}, {cst.UPDATED_AT}, {cst.WINNER_MODEL_REPO}, {cst.WINNER_MODEL_BASE}
             FROM {cst.TOURNAMENTS_TABLE}
             WHERE {cst.TOURNAMENT_TYPE} = $1 AND {cst.TOURNAMENT_STATUS} = 'completed'
             {exclude_clause}
@@ -315,6 +317,8 @@ async def get_latest_completed_tournament(
                 winning_performance_difference=result[cst.WINNING_PERFORMANCE_DIFFERENCE],
                 diff_report=result[cst.DIFF_REPORT],
                 updated_at=result[cst.UPDATED_AT],
+                winner_model_repo=result[cst.WINNER_MODEL_REPO],
+                winner_model_base=result[cst.WINNER_MODEL_BASE],
             )
         return None
 
@@ -477,6 +481,19 @@ async def update_tournament_winner_hotkey(tournament_id: str, winner_hotkey: str
         """
         await connection.execute(query, tournament_id, winner_hotkey)
         logger.info(f"Updated tournament {tournament_id} winner hotkey to {winner_hotkey}")
+
+
+async def update_tournament_winner_model(
+    tournament_id: str, winner_model_repo: str, winner_model_base: str, psql_db: PSQLDB,
+) -> None:
+    async with await psql_db.connection() as connection:
+        query = f"""
+            UPDATE {cst.TOURNAMENTS_TABLE}
+            SET {cst.WINNER_MODEL_REPO} = $2, {cst.WINNER_MODEL_BASE} = $3, {cst.UPDATED_AT} = CURRENT_TIMESTAMP
+            WHERE {cst.TOURNAMENT_ID} = $1
+        """
+        await connection.execute(query, tournament_id, winner_model_repo, winner_model_base)
+        logger.info(f"Updated tournament {tournament_id} winner model: {winner_model_repo} (base: {winner_model_base})")
 
 
 async def update_tournament_diff_report(tournament_id: str, diff_report: str, psql_db: PSQLDB):
