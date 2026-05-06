@@ -31,7 +31,7 @@ NUM_ENV_SERVERS = 1
 client = docker.from_env()
 
 SGLANG_IMAGE = "lmsysorg/sglang:latest"
-ENV_IMAGE = "phoenixbeaudry/swe-infinite:v1"
+ENV_IMAGE = "phoenixbeaudry/swe-infinite:context"
 NETWORK_NAME = "agent_eval_net"
 SGLANG_PORT = 30000
 HF_CACHE_DIR = "/mnt/hf_cache"
