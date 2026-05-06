@@ -13,6 +13,7 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from core.constants import EnvironmentName
+from core.models.tournament_models import EnvironmentWeight
 from core.constants import YARN_VALID_FACTORS
 from core.models.model_prep_models import AugmentationConfig
 from core.models.utility_models import Backend
@@ -173,6 +174,7 @@ class EnvRawTask(RawTask):
     """
 
     environment_names: list[EnvironmentName] = []
+    environment_weights: list[EnvironmentWeight] = []
     eval_seed: int | None = None
     task_type: TaskType = TaskType.ENVIRONMENTTASK
     synthetic_data: str | None = None

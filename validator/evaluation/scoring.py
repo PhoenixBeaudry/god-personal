@@ -649,7 +649,8 @@ async def _run_pvp_group_eval(
         group_results.pair_results.extend(fallback_pair_results)
         group_results.hotkeys.extend(group_results.full_weight_fallbacks.hotkeys)
 
-    standings = compute_pvp_tournament_points(group_results)
+    env_weights = getattr(task, "environment_weights", None) or None
+    standings = compute_pvp_tournament_points(group_results, weights=env_weights)
     points_by_hotkey = {s.hotkey: s.points for s in standings}
 
     return [

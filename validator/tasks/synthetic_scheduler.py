@@ -15,6 +15,7 @@ from core.models.payload_models import ImageModelInfo
 from core.models.payload_models import ImageModelsResponse
 from core.models.payload_models import InstructTextDatasetColumnsResponse
 from core.constants import EnvironmentName
+from core.models.tournament_models import EnvironmentWeight
 from core.models.utility_models import FileFormat
 from core.models.utility_models import Message
 from core.models.utility_models import Prompts
@@ -452,11 +453,14 @@ async def create_synthetic_env_task(
     eval_seed = random.randint(0, 2**31 - 1)
 
     augmentation_config = maybe_get_augmentation_config(TaskType.ENVIRONMENTTASK)
+    weights = [EnvironmentWeight(environment=env) for env in selected_environments]
+
     task = EnvRawTask(
         model_id=model_id,
         ds=dummy_dataset,
         status=TaskStatus.PENDING,
         environment_names=selected_environments,
+        environment_weights=weights,
         eval_seed=eval_seed,
         is_organic=False,
         created_at=current_time,

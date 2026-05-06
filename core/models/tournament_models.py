@@ -11,6 +11,7 @@ from pydantic import Field
 from pydantic import field_validator
 
 from core.models.payload_models import TrainingRepoResponse
+from core.constants import EnvironmentName
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
 from validator.core.models import AnyTypeRawTask
@@ -247,8 +248,29 @@ class TournamentScore(BaseModel):
     score: float
 
 
+class EnvironmentWeight(BaseModel):
+    """Weight for a single environment in tournament scoring."""
+
+    environment: EnvironmentName
+    weight: float = Field(default=1.0, ge=0.0, description="Scoring multiplier for this environment")
+
+
+class PairwiseOutcome(BaseModel):
+    """Universal outcome of a single pair comparison on a single environment.
+
+    Produced by any eval type (PvP, MCTS, etc.) and fed into the universal
+    points accumulator. The winner field is the hotkey of the winner, or
+    None for a draw.
+    """
+
+    hotkey_a: str
+    hotkey_b: str
+    environment: EnvironmentName
+    winner: str | None = Field(description="Hotkey of winner, or None for draw")
+
+
 class GroupStagePoints(BaseModel):
-    """Per-hotkey points from a single PvP group stage evaluation."""
+    """Per-hotkey points from group stage evaluation (any eval type)."""
 
     hotkey: str
     points: float

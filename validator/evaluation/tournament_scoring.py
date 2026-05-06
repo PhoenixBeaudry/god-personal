@@ -1,7 +1,12 @@
 
+import itertools
+
 import validator.core.constants as cts
+from core.constants import EnvironmentName
 from core.models.pvp_models import PvPGroupResults
+from core.models.tournament_models import EnvironmentWeight
 from core.models.tournament_models import GroupStagePoints
+from core.models.tournament_models import PairwiseOutcome
 from core.models.tournament_models import TournamentResultsWithWinners
 from core.models.tournament_models import TournamentScore
 from core.models.tournament_models import TournamentType
@@ -13,31 +18,115 @@ from validator.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def compute_pvp_tournament_points(group_results: PvPGroupResults) -> list[GroupStagePoints]:
-    """Convert PvP group round-robin results into per-hotkey tournament points.
+# --- Universal pairwise scoring ---
 
-    For each pair x each environment:
-      - Strict majority wins = PVP_ENV_WIN_POINTS (3)
-      - Draw = PVP_ENV_DRAW_POINTS (1)
-      - Loss = PVP_ENV_LOSS_POINTS (0)
 
+def accumulate_points(
+    outcomes: list[PairwiseOutcome],
+    hotkeys: list[str],
+    weights: list[EnvironmentWeight] | None = None,
+) -> list[GroupStagePoints]:
+    """Universal 3/1/0 accumulator. Works with outcomes from any eval type.
+
+    Weights are per-environment multipliers (default 1.0 = uniform).
     Returns list sorted by points descending.
     """
-    standings = [GroupStagePoints(hotkey=hotkey, points=0.0) for hotkey in group_results.hotkeys]
-    points_by_hotkey = {s.hotkey: s for s in standings}
+    weight_map = {w.environment: w.weight for w in weights} if weights else {}
+    points = {hotkey: 0.0 for hotkey in hotkeys}
 
-    for pair in group_results.pair_results:
-        for env_result in pair.results.values():
-            if env_result.model_a_wins > env_result.model_b_wins:
-                points_by_hotkey[pair.hotkey_a].points += cts.PVP_ENV_WIN_POINTS
-            elif env_result.model_b_wins > env_result.model_a_wins:
-                points_by_hotkey[pair.hotkey_b].points += cts.PVP_ENV_WIN_POINTS
-            else:
-                points_by_hotkey[pair.hotkey_a].points += cts.PVP_ENV_DRAW_POINTS
-                points_by_hotkey[pair.hotkey_b].points += cts.PVP_ENV_DRAW_POINTS
+    for outcome in outcomes:
+        weight = weight_map.get(outcome.environment, 1.0)
 
+        if outcome.winner == outcome.hotkey_a:
+            points[outcome.hotkey_a] += cts.PVP_ENV_WIN_POINTS * weight
+        elif outcome.winner == outcome.hotkey_b:
+            points[outcome.hotkey_b] += cts.PVP_ENV_WIN_POINTS * weight
+        elif outcome.winner is None:
+            points[outcome.hotkey_a] += cts.PVP_ENV_DRAW_POINTS * weight
+            points[outcome.hotkey_b] += cts.PVP_ENV_DRAW_POINTS * weight
+
+    standings = [GroupStagePoints(hotkey=hk, points=pts) for hk, pts in points.items()]
     standings.sort(key=lambda s: s.points, reverse=True)
     return standings
+
+
+# --- PvP → pairwise ---
+
+
+def pvp_results_to_pairwise(group_results: PvPGroupResults) -> list[PairwiseOutcome]:
+    """Convert PvP group round-robin results into universal pairwise outcomes."""
+    outcomes: list[PairwiseOutcome] = []
+
+    for pair in group_results.pair_results:
+        for env_name, env_result in pair.results.items():
+            if env_result.model_a_wins > env_result.model_b_wins:
+                winner = pair.hotkey_a
+            elif env_result.model_b_wins > env_result.model_a_wins:
+                winner = pair.hotkey_b
+            else:
+                winner = None
+
+            outcomes.append(PairwiseOutcome(
+                hotkey_a=pair.hotkey_a,
+                hotkey_b=pair.hotkey_b,
+                environment=env_name,
+                winner=winner,
+            ))
+
+    return outcomes
+
+
+# --- MCTS scores → pairwise ---
+
+
+def mcts_scores_to_pairwise(
+    scores_by_hotkey: dict[str, float],
+    environment: EnvironmentName,
+    win_margin: float = cts.MCTS_WIN_MARGIN,
+) -> list[PairwiseOutcome]:
+    """Convert independent MCTS scores into pairwise outcomes.
+
+    A must exceed B by win_margin (fractional) to count as a win.
+    Scores within the margin = draw.
+    """
+    hotkeys = list(scores_by_hotkey.keys())
+    outcomes: list[PairwiseOutcome] = []
+
+    for hotkey_a, hotkey_b in itertools.combinations(hotkeys, 2):
+        score_a = scores_by_hotkey[hotkey_a]
+        score_b = scores_by_hotkey[hotkey_b]
+        threshold = abs(score_b) * win_margin
+
+        if score_a > score_b + threshold:
+            winner = hotkey_a
+        elif score_b > score_a + threshold:
+            winner = hotkey_b
+        else:
+            winner = None
+
+        outcomes.append(PairwiseOutcome(
+            hotkey_a=hotkey_a,
+            hotkey_b=hotkey_b,
+            environment=environment,
+            winner=winner,
+        ))
+
+    return outcomes
+
+
+# --- Convenience: PvP group results → standings ---
+
+
+def compute_pvp_tournament_points(
+    group_results: PvPGroupResults,
+    weights: list[EnvironmentWeight] | None = None,
+) -> list[GroupStagePoints]:
+    """Convert PvP group results into per-hotkey tournament points.
+
+    Convenience wrapper: pvp_results_to_pairwise → accumulate_points.
+    """
+    outcomes = pvp_results_to_pairwise(group_results)
+    return accumulate_points(outcomes, group_results.hotkeys, weights)
 
 
 def calculate_tournament_type_scores_from_data(
