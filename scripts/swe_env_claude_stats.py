@@ -30,7 +30,7 @@ CLAUDE_API_KEY_ENV = "ANTHROPIC_API_KEY"
 
 # --- Evaluation Configuration ---
 NUM_EVALS = 20
-TEMPERATURE = 0.0
+TEMPERATURE = None            # Claude 4.x deprecates `temperature`; leave None for those models
 AGENT_TYPE = "codex"          # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100          # miniswe only
 EVAL_TIMEOUT = 1800           # per-task timeout (seconds)
@@ -317,10 +317,11 @@ def run_evaluation(base_seed):
                 "base_url": CLAUDE_BASE_URL,
                 "api_key": api_key,
                 "timeout": EVAL_TIMEOUT,
-                "temperature": TEMPERATURE,
                 "agent": AGENT_TYPE,
                 "max_iterations": MAX_ITERATIONS,
             }
+            if TEMPERATURE is not None:
+                payload["temperature"] = TEMPERATURE
             try:
                 response = requests.post(
                     f"http://localhost:{host_port}/evaluate",
