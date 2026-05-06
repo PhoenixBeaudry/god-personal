@@ -7,6 +7,7 @@ from datetime import timezone
 
 from fiber.chain.models import Node
 
+from core.constants import RAYONLABS_HF_USERNAME
 import validator.core.constants as cst
 from core.models.payload_models import TrainingRepoResponse
 from core.models.tournament_models import Group
@@ -199,6 +200,24 @@ async def _create_tournament_tasks(
     return tasks
 
 
+async def _get_previous_round_repo(tournament_id: str, hotkey: str, psql_db: PSQLDB) -> str | None:
+    """Look up a miner's output repo from the previous round for model continuation."""
+    rounds = await get_tournament_rounds(tournament_id, psql_db)
+    if len(rounds) < 2:
+        return None
+
+    sorted_rounds = sorted(rounds, key=lambda r: r.round_number, reverse=True)
+    prev_round = sorted_rounds[1]  # second most recent = previous round
+
+    prev_tasks = await get_tournament_tasks(prev_round.round_id, psql_db)
+    for prev_task in prev_tasks:
+        repo_name = await task_sql.get_expected_repo_name(prev_task.task_id, hotkey, psql_db)
+        if repo_name:
+            return f"{RAYONLABS_HF_USERNAME}/{repo_name}"
+
+    return None
+
+
 async def assign_nodes_to_tournament_tasks(
     tournament_id: str, round_structure: Round, psql_db: PSQLDB, is_final_round: bool = False
 ) -> None:
@@ -247,6 +266,13 @@ async def assign_nodes_to_tournament_tasks(
 
                         expected_repo_name = f"tournament-{tournament_id}-{task.task_id}-{hotkey[:8]}"
                         await task_sql.set_expected_repo_name(task.task_id, node, psql_db, expected_repo_name)
+
+                        # Model continuation: set previous round's output as starting model
+                        if is_environment_tournament and round_structure.round_number > 1:
+                            prev_repo = await _get_previous_round_repo(tournament_id, hotkey, psql_db)
+                            if prev_repo:
+                                await task_sql.set_starting_model_repo(task.task_id, hotkey, prev_repo, psql_db)
+                                logger.info(f"Model continuation: {hotkey[:8]} starts from {prev_repo}")
 
                         logger.info(
                             f"Assigned {hotkey} to group task {task.task_id} with expected_repo_name: {expected_repo_name}"

@@ -148,6 +148,7 @@ CREATED_ON = "created_on"
 TASK_NODE_QUALITY_SCORE = "quality_score"
 
 EXPECTED_REPO_NAME = "expected_repo_name"
+STARTING_MODEL_REPO = "starting_model_repo"
 EVALUATION_STATUS = "evaluation_status"
 DEPLOYMENT_ID = "deployment_id"
 DEPLOYMENT_ENV_ID = "deployment_env_id"

@@ -439,6 +439,35 @@ async def set_expected_repo_name(task_id: str, node: Node, psql_db: PSQLDB, expe
         await connection.execute(query, expected_repo_name, task_id, node.hotkey, NETUID)
 
 
+async def set_starting_model_repo(task_id: str, hotkey: str, starting_model_repo: str, psql_db: PSQLDB) -> None:
+    """Set the per-miner starting model for model continuation between rounds."""
+    async with await psql_db.connection() as connection:
+        connection: Connection
+        query = f"""
+            UPDATE {cst.TASK_NODES_TABLE}
+            SET {cst.STARTING_MODEL_REPO} = $1
+            WHERE {cst.TASK_ID} = $2
+            AND {cst.HOTKEY} = $3
+            AND {cst.NETUID} = $4
+        """
+        await connection.execute(query, starting_model_repo, task_id, hotkey, NETUID)
+
+
+async def get_starting_model_repo(task_id: str, hotkey: str, psql_db: PSQLDB) -> str | None:
+    """Get the per-miner starting model for this task, if set."""
+    async with await psql_db.connection() as connection:
+        connection: Connection
+        query = f"""
+            SELECT {cst.STARTING_MODEL_REPO}
+            FROM {cst.TASK_NODES_TABLE}
+            WHERE {cst.TASK_ID} = $1
+            AND {cst.HOTKEY} = $2
+            AND {cst.NETUID} = $3
+        """
+        row = await connection.fetchrow(query, task_id, hotkey, NETUID)
+        return row[cst.STARTING_MODEL_REPO] if row and row[cst.STARTING_MODEL_REPO] else None
+
+
 async def get_table_fields(table_name: str, connection: Connection) -> set[str]:
     """Get all column names for a given table"""
     query = """

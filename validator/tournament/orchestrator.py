@@ -633,7 +633,9 @@ async def _create_training_request(
             f"participant or the training repo was not properly set during tournament registration."
         )
 
-    training_model = task.augmented_model_id or task.model_id
+    # Per-miner starting model override (for round continuation)
+    starting_model = await task_sql.get_starting_model_repo(str(task.task_id), hotkey, config.psql_db)
+    training_model = starting_model or task.augmented_model_id or task.model_id
 
     if task.task_type == TaskType.IMAGETASK:
         training_data = TrainRequestImage(
