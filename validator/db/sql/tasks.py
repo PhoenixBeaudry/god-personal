@@ -237,14 +237,15 @@ async def _insert_grpo_task(connection: Connection, task: GrpoRawTask, task_reco
 async def _insert_env_task(connection: Connection, task: EnvRawTask, task_record: dict) -> None:
     query_env = f"""
         INSERT INTO {cst.ENV_TASKS_TABLE}
-        ({cst.TASK_ID}, {cst.ENVIRONMENT_NAME}, {cst.EVAL_SEED})
+        ({cst.TASK_ID}, {cst.ENVIRONMENT_NAMES}, {cst.EVAL_SEED})
         VALUES ($1, $2, $3)
     """
+    env_names = [e.value for e in task.environment_names] if task.environment_names else []
     await connection.execute(
         query_env,
         task_record[cst.TASK_ID],
-        task.environment_name,
-        task.eval_seed
+        env_names,
+        task.eval_seed,
     )
 
 
@@ -364,7 +365,7 @@ async def get_tasks_with_status(
                 """
             elif task_type == TaskType.ENVIRONMENTTASK.value:
                 specific_query = f"""
-                    SELECT t.*, et.environment_name
+                    SELECT t.*, et.environment_names
                     FROM {cst.TASKS_TABLE} t
                     LEFT JOIN {cst.ENV_TASKS_TABLE} et ON t.{cst.TASK_ID} = et.{cst.TASK_ID}
                     WHERE t.{cst.TASK_ID} = $1
@@ -803,7 +804,7 @@ async def get_task(task_id: UUID, psql_db: PSQLDB, connection: Connection | None
             """
         elif task_type == TaskType.ENVIRONMENTTASK.value:
             specific_query = f"""
-                SELECT t.*, et.environment_name
+                SELECT t.*, et.environment_names
                 FROM {cst.TASKS_TABLE} t
                 LEFT JOIN {cst.ENV_TASKS_TABLE} et ON t.{cst.TASK_ID} = et.{cst.TASK_ID}
                 WHERE t.{cst.TASK_ID} = $1
@@ -962,7 +963,7 @@ async def get_task_by_id(task_id: UUID, psql_db: PSQLDB) -> AnyTypeTask:
                 {victorious_repo_cte}
                 SELECT
                     tasks.*,
-                    et.environment_name,
+                    et.environment_names,
                     COALESCE(tasks.training_repo_backup, victorious_repo.repo) as trained_model_repository
                 FROM {cst.TASKS_TABLE} tasks
                 LEFT JOIN {cst.ENV_TASKS_TABLE} et ON tasks.{cst.TASK_ID} = et.{cst.TASK_ID}
@@ -1131,7 +1132,7 @@ def _get_specific_query_for_task_type(task_type: str) -> str | None:
         """
     elif task_type == TaskType.ENVIRONMENTTASK.value:
         return f"""
-            SELECT t.*, et.environment_name
+            SELECT t.*, et.environment_names
             FROM {cst.TASKS_TABLE} t
             LEFT JOIN {cst.ENV_TASKS_TABLE} et ON t.{cst.TASK_ID} = et.{cst.TASK_ID}
             WHERE t.{cst.TASK_ID} = ANY($1)

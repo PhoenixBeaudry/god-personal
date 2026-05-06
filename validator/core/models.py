@@ -172,7 +172,7 @@ class EnvRawTask(RawTask):
     Environment task data as stored in the database. It expand the RawTask with fields from the EnvTask table.
     """
 
-    environment_name: EnvironmentName | None = None
+    environment_names: list[EnvironmentName] = []
     eval_seed: int | None = None
     task_type: TaskType = TaskType.ENVIRONMENTTASK
     synthetic_data: str | None = None

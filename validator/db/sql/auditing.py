@@ -383,7 +383,7 @@ async def _process_task_batch(
     if env_task_ids:
         placeholders = ", ".join("$%d::uuid" % (i + 1) for i in range(len(env_task_ids)))
         query = f"""
-            SELECT {cst.TASK_ID}, {cst.ENVIRONMENT_NAME} FROM {cst.ENV_TASKS_TABLE}
+            SELECT {cst.TASK_ID}, {cst.ENVIRONMENT_NAMES} FROM {cst.ENV_TASKS_TABLE}
             WHERE {cst.TASK_ID} IN ({placeholders})
         """
         rows = await connection.fetch(query, *env_task_ids)

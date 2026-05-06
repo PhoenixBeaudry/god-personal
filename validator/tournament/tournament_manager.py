@@ -185,7 +185,7 @@ async def _create_first_round(
 
 
 async def _create_tournament_tasks(
-    tournament_id: str, round_id: str, round_structure: Round, tournament_type: TournamentType, is_final: bool, config: Config
+    tournament_id: str, round_id: str, round_structure: Round, tournament_type: TournamentType, is_final: bool, config: Config,
 ) -> list[str]:
     if tournament_type == TournamentType.TEXT:
         tasks = await create_text_tournament_tasks(round_structure, tournament_id, round_id, config, is_final)
@@ -888,12 +888,17 @@ async def process_pending_rounds(config: Config):
                                 member_ids = [member.hotkey for member in members]
                                 groups.append(Group(member_ids=member_ids))
                                 logger.info(f"Group {group_data.group_id}: {len(member_ids)} members")
-                            round_structure = GroupRound(groups=groups)
+                            round_structure = GroupRound(
+                                groups=groups, round_id=round_data.round_id, round_number=round_data.round_number,
+                            )
                         else:
                             logger.info("Processing KNOCKOUT round")
                             pairs = await get_tournament_pairs(round_data.round_id, config.psql_db)
                             logger.info(f"Found {len(pairs)} pairs: {[(p.hotkey1, p.hotkey2) for p in pairs]}")
-                            round_structure = KnockoutRound(pairs=[(pair.hotkey1, pair.hotkey2) for pair in pairs])
+                            round_structure = KnockoutRound(
+                                pairs=[(pair.hotkey1, pair.hotkey2) for pair in pairs],
+                                round_id=round_data.round_id, round_number=round_data.round_number,
+                            )
 
                         logger.info(f"About to create tournament tasks for round {round_data.round_id}")
                         tasks = await _create_tournament_tasks(
@@ -903,6 +908,7 @@ async def process_pending_rounds(config: Config):
                             tournament.tournament_type,
                             round_data.is_final_round,
                             config,
+                            round_number=round_data.round_number,
                         )
                         logger.info(f"Created {len(tasks)} tasks for round {round_data.round_id}")
 

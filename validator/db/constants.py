@@ -135,7 +135,7 @@ IS_MANUAL = "is_manual"
 REWARD_WEIGHT = "reward_weight"
 
 # Environment Task Functions Table Columns
-ENVIRONMENT_NAME = "environment_name"
+ENVIRONMENT_NAMES = "environment_names"
 EVAL_SEED = "eval_seed"
 
 # Submissions Table Columns

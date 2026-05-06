@@ -74,7 +74,8 @@ async def create_image_tournament_tasks(
 
 
 async def create_environment_tournament_tasks(
-    round_data: Round, tournament_id: str, round_id: str, config: Config, is_final_round: bool = False
+    round_data: Round, tournament_id: str, round_id: str, config: Config,
+    is_final_round: bool = False, round_number: int = 1,
 ) -> list[str]:
     """
     Create environment tournament tasks.
@@ -82,16 +83,23 @@ async def create_environment_tournament_tasks(
     if not isinstance(round_data, GroupRound):
         raise ValueError("Environment tournaments only support group rounds")
 
-    tasks = await _create_environment_group_tasks(round_data, tournament_id, round_id, config, is_final_round)
+    tasks = await _create_environment_group_tasks(
+        round_data, tournament_id, round_id, config, is_final_round, round_number,
+    )
     return [str(task.task_id) for task in tasks]
 
 
 async def _create_environment_group_tasks(
-    round_data: GroupRound, tournament_id: str, round_id: str, config: Config, is_final_round: bool = False
+    round_data: GroupRound, tournament_id: str, round_id: str, config: Config,
+    is_final_round: bool = False, round_number: int = 1,
 ) -> list[RawTask]:
     """
-    Create a single environment task that all groups (and all participants + boss) compete on.
+    Create environment task(s) for all participants. Each task contains multiple
+    environments — the count scales with round number (R1=2, R2=4, R3=6, capped
+    at available environments).
     """
+    num_envs = round_number * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
+    num_envs = min(num_envs, len(EnvironmentName))
     expected_task_count = t_cst.ENV_FINAL_ROUND_TASK_COUNT if is_final_round else 1
     logger.info(
         f"Creating environment tournament with {len(round_data.groups)} groups - "

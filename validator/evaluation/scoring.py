@@ -212,8 +212,9 @@ def _get_dataset_type(task: AnyTypeRawTask) -> TextDatasetType | None:
             extra_column=task.extra_column,
         )
     elif task.task_type == TaskType.ENVIRONMENTTASK:
+        env_names = getattr(task, "environment_names", [])
         return EnvironmentDatasetType(
-            environment_name=task.environment_name
+            environment_name=env_names[0] if env_names else None
         )
     elif task.task_type == TaskType.CHATTASK:
         return ChatTemplateDatasetType(
@@ -604,13 +605,17 @@ async def process_miners_pool(
 
 
 def should_use_pvp(task: AnyTypeRawTask) -> bool:
-    """Check if this task should use PvP evaluation based on its game's eval_type."""
+    """Check if this task should use PvP evaluation based on its games' eval_type."""
     if task.task_type != TaskType.ENVIRONMENTTASK:
         return False
-    env_name = getattr(task, "environment_name", None)
-    if env_name is None or env_name not in core_cst.ENVIRONMENT_CONFIGS:
+    env_names = getattr(task, "environment_names", None)
+    if not env_names:
         return False
-    return core_cst.ENVIRONMENT_CONFIGS[env_name].eval_type == core_cst.EvalType.PVP
+    for name in env_names:
+        env_config = core_cst.ENVIRONMENT_CONFIGS.get(name)
+        if env_config and env_config.eval_type == core_cst.EvalType.PVP:
+            return True
+    return False
 
 
 async def _run_pvp_group_eval(
@@ -620,8 +625,7 @@ async def _run_pvp_group_eval(
 ) -> list[MinerResultsText]:
     """Run PvP group eval and convert standings to MinerResultsText."""
     base_model = task.augmented_model_id or task.model_id
-    env_name = getattr(task, "environment_name", None)
-    environment_names = [env_name] if env_name else list(core_cst.EnvironmentName)
+    environment_names = getattr(task, "environment_names", None) or list(core_cst.EnvironmentName)
 
     eval_seed = await get_env_task_eval_seed(task.task_id, config.psql_db)
     seed = eval_seed if eval_seed is not None else cts.ENV_EVAL_DEFAULT_SEED

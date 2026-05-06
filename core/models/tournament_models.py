@@ -150,11 +150,16 @@ class Group(BaseModel):
     task_ids: list[str] | None = None
 
 
-class GroupRound(BaseModel):
+class BaseRound(BaseModel):
+    round_id: str = ""
+    round_number: int = 1
+
+
+class GroupRound(BaseRound):
     groups: list[Group]
 
 
-class KnockoutRound(BaseModel):
+class KnockoutRound(BaseRound):
     # pairs of hotkeys
     pairs: list[tuple[str, str]]
     tasks: list[str] | None = None
