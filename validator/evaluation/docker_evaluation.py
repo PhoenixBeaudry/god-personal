@@ -834,7 +834,11 @@ async def _deploy_pvp_eval(pvp_config: PvPEvalConfig, label: str, repos_label: s
             if isinstance(result, dict):
                 return result
 
-            eval_logger.error("PvP %s eval returned non-dict: %s", label, result)
+            remaining = vcst.EVAL_BASILICA_MAX_RETRIES - attempt
+            eval_logger.error("PvP %s eval returned non-dict result: %s", label, result)
+            if remaining > 0:
+                eval_logger.info("Retrying in %ds", vcst.EVAL_BASILICA_RETRY_DELAY_SECONDS)
+                await asyncio.sleep(vcst.EVAL_BASILICA_RETRY_DELAY_SECONDS)
 
         except Exception as exc:
             remaining = vcst.EVAL_BASILICA_MAX_RETRIES - attempt

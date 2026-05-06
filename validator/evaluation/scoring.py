@@ -7,9 +7,12 @@ from fiber.chain.models import Node
 from huggingface_hub import HfApi
 
 import validator.core.constants as cts
+from core import constants as core_cst
 from core.models.payload_models import DiffusionLosses
 from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
+from core.models.pvp_models import PvPGroupModelSpec, PvPGroupResults, PvPPairResult
+from core.models.tournament_models import EvalHotkeyResults
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
 from core.models.utility_models import FileFormat
@@ -36,15 +39,10 @@ from validator.db.sql.tasks import get_expected_repo_name
 from validator.db.sql.tasks import get_nodes_assigned_to_task
 from validator.db.sql.tournaments import get_tournament_id_by_task_id
 from validator.db.sql.tournaments import get_training_status_for_task_and_hotkeys
-from core import constants as core_cst
-from core.models.pvp_models import PvPGroupModelSpec, PvPGroupResults, PvPPairResult
-from core.models.tournament_models import EvalHotkeyResults
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_image
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_text
 from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
 from validator.evaluation.docker_evaluation import run_evaluation_pvp_pair
-from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
-from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
 from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
 from validator.utils.logging import LogContext
 from validator.utils.logging import add_context_tag
