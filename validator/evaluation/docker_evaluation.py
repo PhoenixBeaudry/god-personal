@@ -16,6 +16,13 @@ from core import constants as cst
 from core.models.payload_models import DockerEvaluationResults
 from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
+from core.models.pvp_models import (
+    PvPEvalConfig,
+    PvPGroupModelSpec,
+    PvPGroupResults,
+    PvPMatchupConfig,
+    PvPMode,
+)
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
 from core.models.utility_models import FileFormat
@@ -23,6 +30,7 @@ from core.models.utility_models import GrpoDatasetType
 from core.models.utility_models import EnvironmentDatasetType
 from core.models.utility_models import ImageModelType
 from core.models.utility_models import InstructTextDatasetType
+from core.models.utility_models import TaskType
 from validator.core import constants as vcst
 from validator.db.database import PSQLDB
 from validator.utils.logging import get_logger
@@ -533,11 +541,7 @@ async def run_evaluation_basilica_text(
         "DATASET_TYPE": dataset_type_str,
         "FILE_FORMAT": file_format.value,
         "TRANSFORMERS_ALLOW_TORCH_LOAD": "true",
-        "HF_HOME": "/root/.cache/huggingface",
-        "TRANSFORMERS_CACHE": "/root/.cache/huggingface/hub",
-        "HF_DATASETS_CACHE": "/root/.cache/huggingface/datasets",
-        "HUGGINGFACE_HUB_CACHE": "/root/.cache/huggingface/hub",
-        "HF_HUB_ENABLE_HF_TRANSFER": "1",
+        **vcst.HF_CONTAINER_ENV,
     }
     if is_environment_eval:
         env_name = dataset_type.environment_name
@@ -637,11 +641,7 @@ async def run_evaluation_basilica_grpo(
         "DATASET_TYPE": dataset_type_str,
         "FILE_FORMAT": file_format.value,
         "TRANSFORMERS_ALLOW_TORCH_LOAD": "true",
-        "HF_HOME": "/root/.cache/huggingface",
-        "TRANSFORMERS_CACHE": "/root/.cache/huggingface/hub",
-        "HF_DATASETS_CACHE": "/root/.cache/huggingface/datasets",
-        "HUGGINGFACE_HUB_CACHE": "/root/.cache/huggingface/hub",
-        "HF_HUB_ENABLE_HF_TRANSFER": "1",
+        **vcst.HF_CONTAINER_ENV,
     }
 
     logger.debug(f"Starting Basilica GRPO evaluation for {len(models)} repos: {models}")
@@ -723,11 +723,7 @@ async def run_evaluation_basilica_image(
         "ORIGINAL_MODEL_REPO": original_model_repo,
         "MODEL_TYPE": model_type.value,
         "TRANSFORMERS_ALLOW_TORCH_LOAD": "true",
-        "HF_HOME": "/root/.cache/huggingface",
-        "TRANSFORMERS_CACHE": "/root/.cache/huggingface/hub",
-        "HF_DATASETS_CACHE": "/root/.cache/huggingface/datasets",
-        "HUGGINGFACE_HUB_CACHE": "/root/.cache/huggingface/hub",
-        "HF_HUB_ENABLE_HF_TRANSFER": "0",
+        **vcst.HF_CONTAINER_ENV_IMAGE,
     }
 
     logger.debug(f"Starting Basilica image evaluation for {len(models)} repos: {models}")
@@ -780,3 +776,105 @@ async def run_evaluation_basilica_image(
         evaluation_results["model_params_count"] = model_params_count
 
     return process_evaluation_results(evaluation_results, is_image=True)
+
+
+async def run_evaluation_pvp_group(
+    participants: list[PvPGroupModelSpec],
+    base_model: str,
+    environment_names: list[cst.EnvironmentName],
+    seed: int,
+    temperature: float = 0.0,
+) -> PvPGroupResults:
+    """Run PvP group round-robin evaluation via a single Basilica deployment.
+
+    Deploys one container with 2 GPUs running multi-LoRA SGLang.
+    All C(N,2) pairings play without server restarts.
+    """
+    matchups = {
+        env_name: PvPMatchupConfig(num_games=vcst.PVP_NUM_GAMES_PER_ENV)
+        for env_name in environment_names
+    }
+    pvp_config = PvPEvalConfig(
+        mode=PvPMode.GROUP,
+        models=participants,
+        base_model=base_model,
+        matchups=matchups,
+        seed=seed,
+        temperature=temperature,
+    )
+
+    env = {
+        vcst.PVP_CONFIG_ENV_VAR: pvp_config.model_dump_json(),
+        **vcst.HF_CONTAINER_ENV,
+    }
+    command = ["python", "-m", "validator.evaluation.pvp"]
+    source = create_basilica_eval_runner_source(command, vcst.PVP_RESULTS_PATH)
+
+    repos_label = ",".join(p.repo.split("/")[-1] for p in participants)
+    eval_id = str(uuid.uuid4())
+    eval_logger = get_environment_logger(
+        name=f"pvp-group-{eval_id[:8]}",
+        repo_id=repos_label,
+        eval_id=eval_id,
+        model=base_model,
+        task_type=TaskType.ENVIRONMENTTASK.value,
+    )
+
+    for attempt in range(1, vcst.EVAL_BASILICA_MAX_RETRIES + 1):
+        deployment = None
+        deployment_name = str(uuid.uuid4())
+        try:
+            eval_logger.info(
+                "Starting PvP group eval attempt %d/%d: %d models, %d envs",
+                attempt, vcst.EVAL_BASILICA_MAX_RETRIES, len(participants), len(environment_names),
+            )
+            client = basilica.BasilicaClient()
+            deployment = await asyncio.to_thread(
+                client.deploy,
+                name=deployment_name,
+                source=source,
+                image=cst.VALIDATOR_DOCKER_IMAGE_PVP,
+                port=vcst.PVP_BASILICA_PORT,
+                cpu=vcst.EVAL_BASILICA_CPU,
+                memory=vcst.EVAL_BASILICA_MEMORY,
+                ttl_seconds=vcst.PVP_BASILICA_TTL_SECONDS,
+                timeout=vcst.EVAL_BASILICA_TIMEOUT,
+                env=env,
+                gpu_count=vcst.PVP_BASILICA_GPU_COUNT,
+                gpu_models=vcst.BASILICA_GPU_MODELS,
+                min_gpu_memory_gb=vcst.BASILICA_SGLANG_MIN_GPU_MEMORY_GB,
+            )
+            eval_logger.info("PvP group deployment started: %s", deployment_name)
+
+            result = await _poll_basilica_result(
+                deployment, "pvp-group",
+                eval_logger=eval_logger,
+                poll_interval_seconds=vcst.EVAL_BASILICA_POLL_INTERVAL_SECONDS,
+                max_poll_seconds=vcst.PVP_BASILICA_TTL_SECONDS,
+            )
+            if isinstance(result, dict):
+                return PvPGroupResults.model_validate(result)
+
+            eval_logger.error("PvP group eval returned non-dict: %s", result)
+
+        except Exception as exc:
+            remaining = vcst.EVAL_BASILICA_MAX_RETRIES - attempt
+            eval_logger.error("PvP group eval attempt %d failed: %s", attempt, exc, exc_info=True)
+            if remaining > 0:
+                eval_logger.info("Retrying in %ds", vcst.EVAL_BASILICA_RETRY_DELAY_SECONDS)
+                await asyncio.sleep(vcst.EVAL_BASILICA_RETRY_DELAY_SECONDS)
+            else:
+                raise RuntimeError(
+                    f"PvP group evaluation failed after {vcst.EVAL_BASILICA_MAX_RETRIES} attempts"
+                ) from exc
+        finally:
+            if deployment is not None:
+                try:
+                    await asyncio.to_thread(
+                        log_basilica_logs_block, eval_logger, "pvp-group", deployment_name, deployment,
+                    )
+                    await asyncio.to_thread(deployment.delete)
+                except Exception as exc:
+                    eval_logger.warning("Failed to cleanup PvP deployment: %s", exc)
+
+    raise RuntimeError("PvP group evaluation failed")

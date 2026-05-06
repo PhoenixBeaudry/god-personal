@@ -427,3 +427,15 @@ PVP_NUM_GAMES_PER_ENV = 150
 
 # PvP Basilica deployment
 PVP_BASILICA_TTL_SECONDS = 28800
+PVP_BASILICA_GPU_COUNT = 2
+PVP_BASILICA_PORT = 8000
+
+# HuggingFace container env vars (shared across all eval containers)
+_HF_CONTAINER_ENV_BASE = {
+    "HF_HOME": "/root/.cache/huggingface",
+    "TRANSFORMERS_CACHE": "/root/.cache/huggingface/hub",
+    "HF_DATASETS_CACHE": "/root/.cache/huggingface/datasets",
+    "HUGGINGFACE_HUB_CACHE": "/root/.cache/huggingface/hub",
+}
+HF_CONTAINER_ENV = {**_HF_CONTAINER_ENV_BASE, "HF_HUB_ENABLE_HF_TRANSFER": "1"}
+HF_CONTAINER_ENV_IMAGE = {**_HF_CONTAINER_ENV_BASE, "HF_HUB_ENABLE_HF_TRANSFER": "0"}
