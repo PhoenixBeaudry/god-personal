@@ -177,11 +177,11 @@ async def _create_first_round(
         await insert_tournament_round(round_data, psql_db)
 
         if isinstance(round_structure, GroupRound):
-            await insert_tournament_groups_with_members(round_id, round_structure, psql_db)
+            await insert_tournament_groups_with_members(round_structure.round_id, round_structure, psql_db)
         else:
-            await insert_tournament_pairs(round_id, round_structure.pairs, psql_db)
+            await insert_tournament_pairs(round_structure.round_id, round_structure.pairs, psql_db)
 
-        logger.info(f"Created first round {round_id}")
+        logger.info(f"Created first round {round_structure.round_id}")
 
 
 async def _create_tournament_tasks(
@@ -200,7 +200,7 @@ async def _create_tournament_tasks(
 
 
 async def assign_nodes_to_tournament_tasks(
-    tournament_id: str, round_id: str, round_structure: Round, psql_db: PSQLDB, is_final_round: bool = False
+    tournament_id: str, round_structure: Round, psql_db: PSQLDB, is_final_round: bool = False
 ) -> None:
     """Assign nodes to tournament tasks for the given round."""
 
@@ -223,13 +223,13 @@ async def assign_nodes_to_tournament_tasks(
 
         for i, group in enumerate(round_structure.groups):
             if is_environment_tournament:
-                current_group_id = f"{round_id}_group_001"
+                current_group_id = f"{round_structure.round_id}_group_001"
                 participants_to_assign = all_participants
             else:
-                current_group_id = f"{round_id}_group_{i + 1:03d}"
+                current_group_id = f"{round_structure.round_id}_group_{i + 1:03d}"
                 participants_to_assign = group.member_ids
 
-            group_tasks = await get_tournament_tasks(round_id, psql_db)
+            group_tasks = await get_tournament_tasks(round_structure.round_id, psql_db)
             group_tasks = [task for task in group_tasks if task.group_id == current_group_id]
 
             for task in group_tasks:
@@ -259,11 +259,11 @@ async def assign_nodes_to_tournament_tasks(
                 break
     else:
         logger.info("Processing KNOCKOUT round assignment")
-        round_tasks = await get_tournament_tasks(round_id, psql_db)
-        logger.info(f"Found {len(round_tasks)} tasks for round {round_id}")
+        round_tasks = await get_tournament_tasks(round_structure.round_id, psql_db)
+        logger.info(f"Found {len(round_tasks)} tasks for round {round_structure.round_id}")
 
         for i, pair in enumerate(round_structure.pairs):
-            pair_id = f"{round_id}_pair_{i + 1:03d}"
+            pair_id = f"{round_structure.round_id}_pair_{i + 1:03d}"
             logger.info(f"Processing pair {i + 1}/{len(round_structure.pairs)}: {pair} -> {pair_id}")
 
             pair_tasks = [task for task in round_tasks if task.pair_id == pair_id]
@@ -369,7 +369,7 @@ async def create_next_round(
         await insert_tournament_round(round_data, psql_db)
 
         if isinstance(round_structure, GroupRound):
-            await insert_tournament_groups_with_members(next_round_id, round_structure, psql_db)
+            await insert_tournament_groups_with_members(round_structure.round_id, round_structure, psql_db)
         else:
             await insert_tournament_pairs(next_round_id, round_structure.pairs, psql_db)
 
@@ -915,7 +915,6 @@ async def process_pending_rounds(config: Config):
                         logger.info("About to assign nodes to tournament tasks")
                         await assign_nodes_to_tournament_tasks(
                             round_data.tournament_id,
-                            round_data.round_id,
                             round_structure,
                             config.psql_db,
                             round_data.is_final_round,

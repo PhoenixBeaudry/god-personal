@@ -298,8 +298,8 @@ class NewTaskRequestChat(NewTaskRequest):
 
 
 class NewTaskRequestEnvironment(NewTaskRequest):
-    environment_name: EnvironmentName = Field(
-        ..., description="The name of the specific environment we are training for.", examples=["gin_rummy"]
+    environment_names: list[EnvironmentName] = Field(
+        ..., description="Environments to train on.", examples=[["gin_rummy", "liars_dice"]]
     )
 
     ds_repo: str = Field(..., description="The repository for the dataset", examples=["Magpie-Align/Magpie-Pro-300K-Filtered"])
@@ -527,7 +527,7 @@ class GrpoTaskDetails(TaskDetails):
 
 class EnvironmentTaskDetails(TaskDetails):
     task_type: TaskType = TaskType.ENVIRONMENTTASK
-    environment_name: EnvironmentName
+    environment_names: list[EnvironmentName] = []
     base_model_repository: str
     ds_repo: str
 

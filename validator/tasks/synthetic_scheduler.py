@@ -434,30 +434,21 @@ async def create_synthetic_env_task(
     config: Config,
     models: AsyncGenerator[str, None],
     datasets: AsyncGenerator[Dataset, None],
+    num_environments: int = 1,
     exclude_environments: list[EnvironmentName] | None = None,
-    force_environment: EnvironmentName | None = None,
 ) -> RawTask:
-    # hardoced model for now. the model and ds generators kept for signature compatibility
     model_id = random.choice(SUPPORTED_ENV_MODELS)
-
-    # Environment tasks don't use the actual dataset - trainer generates a dummy one
-    # Use a placeholder to satisfy DB constraint
     dummy_dataset = "env_task_dummy_dataset"
 
     number_of_hours = _get_training_hours_for_environment_task()
-
     current_time = datetime.utcnow()
     end_timestamp = current_time + timedelta(hours=number_of_hours)
 
-    if force_environment:
-        selected_environment = force_environment
-    else:
-        game_candidates = [EnvironmentName.GIN_RUMMY, EnvironmentName.LIARS_DICE, EnvironmentName.LEDUC_POKER]
-        if exclude_environments:
-            game_candidates = [g for g in game_candidates if g not in exclude_environments]
-        selected_environment = random.choice(game_candidates)
+    all_envs = list(EnvironmentName)
+    candidates = [g for g in all_envs if g not in (exclude_environments or [])]
+    count = min(num_environments, len(candidates))
+    selected_environments = random.sample(candidates, count) if candidates else []
 
-    # Generate a random seed for evaluation reproducibility
     eval_seed = random.randint(0, 2**31 - 1)
 
     augmentation_config = maybe_get_augmentation_config(TaskType.ENVIRONMENTTASK)
@@ -465,7 +456,7 @@ async def create_synthetic_env_task(
         model_id=model_id,
         ds=dummy_dataset,
         status=TaskStatus.PENDING,
-        environment_name=selected_environment,
+        environment_names=selected_environments,
         eval_seed=eval_seed,
         is_organic=False,
         created_at=current_time,
@@ -475,7 +466,10 @@ async def create_synthetic_env_task(
         yarn_factor=None,
         augmentation_config=augmentation_config,
     )
-    logger.info(f"New Environment task created with eval_seed={eval_seed}, augmented={augmentation_config is not None}")
+    logger.info(
+        f"New Environment task: {len(selected_environments)} envs={[e.value for e in selected_environments]}, "
+        f"eval_seed={eval_seed}, augmented={augmentation_config is not None}"
+    )
 
     task = await add_task(task, config.psql_db)
 

@@ -183,7 +183,7 @@ async def get_recent_tasks(
                 task_data["file_format"] = task_data.pop("dpo_file_format")
                 task = DpoTask(**{k: v for k, v in task_data.items() if k in DpoTask.model_fields})
             elif task_type == TaskType.ENVIRONMENTTASK.value:
-                task_data["environment_name"] = task_data.pop("environment_name")
+                task_data["environment_names"] = task_data.get("environment_names", [])
                 task = EnvTask(**{k: v for k, v in task_data.items() if k in EnvTask.model_fields})
             elif task_type == TaskType.GRPOTASK.value:
                 task_data["field_prompt"] = task_data.pop("grpo_field_prompt")

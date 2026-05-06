@@ -1270,7 +1270,7 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 tasks.append(GrpoTask(**task_data, reward_functions=reward_functions))
             elif task_type == TaskType.ENVIRONMENTTASK.value:
                 env_query = f"""
-                    SELECT environment_name
+                    SELECT environment_names
                     FROM {cst.ENV_TASKS_TABLE}
                     WHERE {cst.TASK_ID} = $1
                 """

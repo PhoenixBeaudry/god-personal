@@ -152,22 +152,22 @@ async def _get_previous_round_environment_names(tournament_id: str, config: Conf
         tasks = await get_tournament_tasks(round_data.round_id, config.psql_db)
         if tasks:
             task_obj = await task_sql.get_task(tasks[0].task_id, config.psql_db)
-            if task_obj and hasattr(task_obj, "environment_name") and task_obj.environment_name:
-                env_names.append(task_obj.environment_name)
+            if task_obj and hasattr(task_obj, "environment_names") and task_obj.environment_names:
+                env_names.extend(task_obj.environment_names)
     if env_names:
         logger.info(f"Previous rounds used environments: {env_names}")
     return env_names
 
 
 async def _create_group_image_tasks(
-    round_data: GroupRound, tournament_id: str, round_id: str, config: Config, image_models: list
+    round_data: GroupRound, tournament_id: str, config: Config, image_models: list
 ) -> list[RawTask]:
     num_groups = len(round_data.groups)
     logger.info(f"Creating image tournament for {num_groups} groups ({t_cst.IMAGE_TASKS_PER_GROUP} per group)")
     tasks = []
 
     for i, group in enumerate(round_data.groups):
-        group_tasks = await _create_single_group_image_tasks(group, i, tournament_id, round_id, config, image_models)
+        group_tasks = await _create_single_group_image_tasks(group, i, tournament_id, round_data.round_id, config, image_models)
         tasks.extend(group_tasks)
 
     return tasks
@@ -198,14 +198,14 @@ async def _create_single_group_image_tasks(
 
 
 async def _create_knockout_image_tasks(
-    round_data: KnockoutRound, tournament_id: str, round_id: str, config: Config, image_models: list
+    round_data: KnockoutRound, tournament_id: str, config: Config, image_models: list
 ) -> list[RawTask]:
     num_pairs = len(round_data.pairs)
     logger.info(f"Creating image tournament for {num_pairs} knockout pairs ({t_cst.KNOCKOUT_PAIR_TASKS} per pair)")
     tasks = []
 
     for i, pair in enumerate(round_data.pairs):
-        pair_tasks = await _create_single_knockout_image_task(pair, i, tournament_id, round_id, config, image_models)
+        pair_tasks = await _create_single_knockout_image_task(pair, i, tournament_id, round_data.round_id, config, image_models)
         tasks.extend(pair_tasks)
 
     return tasks
@@ -323,7 +323,7 @@ async def _create_and_register_tournament_task(
 
 
 async def _create_group_text_tasks(
-    round_data: GroupRound, tournament_id: str, round_id: str, config: Config, is_final_round: bool
+    round_data: GroupRound, tournament_id: str, config: Config, is_final_round: bool
 ) -> list[RawTask]:
     models = _get_text_models(config.keypair, smallest_size_b=0.1, largest_size_b=4.0)
     instruct_datasets = _get_instruct_text_datasets(config.keypair)
@@ -333,7 +333,7 @@ async def _create_group_text_tasks(
     for i, group in enumerate(round_data.groups):
         logger.info(f"  Group {i + 1} ({len(group.member_ids)} members): creating 1 instruct task")
         group_tasks = await _create_single_group_text_tasks(
-            group, i, tournament_id, round_id, config, models, instruct_datasets, dpo_datasets
+            group, i, tournament_id, round_data.round_id, config, models, instruct_datasets, dpo_datasets
         )
         tasks.extend(group_tasks)
 
@@ -374,7 +374,7 @@ async def _create_single_group_text_tasks(
 
 
 async def _create_probability_based_text_tasks(
-    round_data: KnockoutRound, tournament_id: str, round_id: str, config: Config
+    round_data: KnockoutRound, tournament_id: str, config: Config
 ) -> list[RawTask]:
     num_tasks = len(round_data.pairs)
     models = _get_text_models(config.keypair)
@@ -393,9 +393,9 @@ async def _create_probability_based_text_tasks(
     for i in range(num_tasks):
         pair = round_data.pairs[i]
         logger.info(f"  Pair {i + 1} ({pair[0]} vs {pair[1]}):")
-        pair_id = f"{round_id}_pair_{i + 1:03d}"
+        pair_id = f"{round_data.round_id}_pair_{i + 1:03d}"
 
-        existing_tasks = await _get_existing_tasks_by_identifier(round_id, config, pair_id=pair_id)
+        existing_tasks = await _get_existing_tasks_by_identifier(round_data.round_id, config, pair_id=pair_id)
         existing_count = len(existing_tasks)
 
         if existing_tasks:
