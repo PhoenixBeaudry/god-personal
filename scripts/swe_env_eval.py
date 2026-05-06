@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-14B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 BASE_MODEL_REVISION = None
 LORA_MODEL_NAME = None # Put the name of your repo containing the LORA here
 LORA_MODEL_REVISION = None
@@ -16,7 +16,7 @@ LOCAL_LORA_PATH = None
 # --- Evaluation Configuration ---
 NUM_EVALS = 10
 TEMPERATURE = 0.0
-AGENT_TYPE = "codex"              # "miniswe", "codex", or "" for auto-select
+AGENT_TYPE = "miniswe"              # "miniswe", "codex", or "" for auto-select
 MAX_ITERATIONS = 100         # miniswe only
 EVAL_TIMEOUT = 1800          # per-task timeout (seconds)
 TASK_ID_MIN = 0
@@ -207,7 +207,7 @@ def run_evaluation(base_seed):
             payload = {
                 "task_id": task_id,
                 "model": inference_model_name,
-                "base_url": "http://172.17.0.1:30000/v1",
+                "base_url": f"http://sglang-server:{SGLANG_PORT}/v1",
                 "api_key": "test",
                 "timeout": EVAL_TIMEOUT,
                 "temperature": TEMPERATURE,
