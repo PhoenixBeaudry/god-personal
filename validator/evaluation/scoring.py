@@ -36,14 +36,13 @@ from validator.db.sql.tasks import get_expected_repo_name
 from validator.db.sql.tasks import get_nodes_assigned_to_task
 from validator.db.sql.tournaments import get_tournament_id_by_task_id
 from validator.db.sql.tournaments import get_training_status_for_task_and_hotkeys
-from core import constants as cst
-from core.models.pvp_models import PvPGroupModelSpec
 from core import constants as core_cst
-from core.models.pvp_models import PvPGroupModelSpec
+from core.models.pvp_models import PvPGroupModelSpec, PvPGroupResults, PvPPairResult
 from core.models.tournament_models import EvalHotkeyResults
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_image
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_text
 from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
+from validator.evaluation.docker_evaluation import run_evaluation_pvp_pair
 from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
 from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
 from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
@@ -512,7 +511,7 @@ async def process_miners_pool(
             logger.info(f"Constructed repo {repo} for miner {miner.hotkey}")
             miner_repos[miner.hotkey] = repo
 
-    if miner_repos and _should_use_pvp(task):
+    if miner_repos and should_use_pvp(task):
         try:
             results.extend(await _run_pvp_group_eval(task, miner_repos, config))
         except Exception as e:
@@ -604,7 +603,7 @@ async def process_miners_pool(
     return results
 
 
-def _should_use_pvp(task: AnyTypeRawTask) -> bool:
+def should_use_pvp(task: AnyTypeRawTask) -> bool:
     """Check if this task should use PvP evaluation based on its game's eval_type."""
     if task.task_type != TaskType.ENVIRONMENTTASK:
         return False
@@ -641,6 +640,13 @@ async def _run_pvp_group_eval(
         seed=seed,
     )
 
+    if group_results.full_weight_fallbacks:
+        fallback_pair_results = await _run_full_weight_fallback(
+            group_results, miner_repos, base_model, environment_names, seed,
+        )
+        group_results.pair_results.extend(fallback_pair_results)
+        group_results.hotkeys.extend(group_results.full_weight_fallbacks.hotkeys)
+
     standings = compute_pvp_tournament_points(group_results)
     points_by_hotkey = {s.hotkey: s.points for s in standings}
 
@@ -661,6 +667,58 @@ async def _run_pvp_group_eval(
         )
         for hotkey, repo in miner_repos.items()
     ]
+
+
+async def _run_full_weight_fallback(
+    group_results: PvPGroupResults,
+    miner_repos: dict[str, str],
+    base_model: str,
+    environment_names: list[core_cst.EnvironmentName],
+    seed: int,
+) -> list[PvPPairResult]:
+    """Run 1v1 pair evals for full-weight contestants against each group participant."""
+    fallback = group_results.full_weight_fallbacks
+    if fallback is None:
+        return []
+    lora_hotkeys = [h for h in group_results.hotkeys if h not in set(fallback.hotkeys)]
+    fw_repo_by_hotkey = dict(zip(fallback.hotkeys, fallback.repos))
+
+    all_pair_results: list[PvPPairResult] = []
+
+    for fw_hotkey in fallback.hotkeys:
+        fw_repo = fw_repo_by_hotkey[fw_hotkey]
+
+        for lora_hotkey in lora_hotkeys:
+            lora_repo = miner_repos[lora_hotkey]
+            logger.info(f"Full-weight fallback 1v1: {fw_hotkey[:8]} vs {lora_hotkey[:8]}")
+            pair_group = await run_evaluation_pvp_pair(
+                model_a_repo=fw_repo,
+                model_b_repo=lora_repo,
+                hotkey_a=fw_hotkey,
+                hotkey_b=lora_hotkey,
+                base_model=base_model,
+                environment_names=environment_names,
+                seed=seed,
+            )
+            all_pair_results.extend(pair_group.pair_results)
+
+        for other_fw_hotkey in fallback.hotkeys:
+            if other_fw_hotkey <= fw_hotkey:
+                continue
+            other_fw_repo = fw_repo_by_hotkey[other_fw_hotkey]
+            logger.info(f"Full-weight fallback 1v1: {fw_hotkey[:8]} vs {other_fw_hotkey[:8]}")
+            pair_group = await run_evaluation_pvp_pair(
+                model_a_repo=fw_repo,
+                model_b_repo=other_fw_repo,
+                hotkey_a=fw_hotkey,
+                hotkey_b=other_fw_hotkey,
+                base_model=base_model,
+                environment_names=environment_names,
+                seed=seed,
+            )
+            all_pair_results.extend(pair_group.pair_results)
+
+    return all_pair_results
 
 
 async def evaluate_and_score_hotkeys(

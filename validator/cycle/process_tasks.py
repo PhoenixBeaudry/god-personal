@@ -17,6 +17,7 @@ from validator.cycle.util_functions import get_model_num_params
 from validator.db.database import PSQLDB
 from validator.evaluation.scoring import evaluate_and_score_hotkeys
 from validator.evaluation.scoring import finalize_task_scores_from_raw_losses
+from validator.evaluation.scoring import should_use_pvp
 from validator.tournament.utils import send_to_discord
 from validator.utils.cache_clear import clean_all_hf_datasets_cache
 from validator.utils.cache_clear import manage_models_cache
@@ -304,7 +305,8 @@ async def _evaluate_pending_pairs_for_task(task: AnyTypeRawTask, num_gpus: int, 
     evaluating_hotkeys = [row["hotkey"] for row in evaluating_rows]
     all_hotkeys = list(dict.fromkeys(pending_hotkeys + evaluating_hotkeys))
 
-    hotkey_batches = [all_hotkeys] if task.task_type == TaskType.GRPOTASK else [[hotkey] for hotkey in all_hotkeys]
+    batch_together = task.task_type == TaskType.GRPOTASK or should_use_pvp(task)
+    hotkey_batches = [all_hotkeys] if batch_together else [[hotkey] for hotkey in all_hotkeys]
     pending_evaluations = []
     for hotkeys in hotkey_batches:
         pending_batch = [hotkey for hotkey in hotkeys if hotkey in pending_hotkeys]
