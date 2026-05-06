@@ -116,28 +116,15 @@ async def _create_environment_group_tasks(
 
     logger.info(f"Creating {expected_task_count - len(existing_tasks)} environment task(s) for all participants")
 
-    exclude_envs = await _get_previous_round_environment_names(tournament_id, config)
-    if not is_final_round and t_cst.FORCED_BOSS_ENVIRONMENT:
-        if t_cst.FORCED_BOSS_ENVIRONMENT not in exclude_envs:
-            exclude_envs.append(t_cst.FORCED_BOSS_ENVIRONMENT)
-
     group_id = f"{round_id}_group_001"
     tasks: list[RawTask] = await _get_existing_tasks(existing_tasks, config) if existing_tasks else []
 
-    # Collect envs already selected in existing tasks to avoid duplicates
-    already_selected: list[EnvironmentName] = []
-    for t in tasks:
-        already_selected.extend(getattr(t, "environment_names", []))
-    exclude_envs.extend(already_selected)
-
     while len(tasks) < expected_task_count:
         task = await create_synthetic_env_task(
-            config, models, instruct_datasets, num_environments=num_envs, exclude_environments=exclude_envs,
+            config, models, instruct_datasets, num_environments=num_envs,
         )
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
-        already_selected.extend(getattr(task, "environment_names", []))
-        exclude_envs.extend(getattr(task, "environment_names", []))
 
     created_ids = [str(task.task_id) for task in tasks]
     logger.info(f"Created environment tournament task(s) for all participants: {created_ids}")
@@ -150,8 +137,8 @@ async def _get_previous_round_environment_names(tournament_id: str, config: Conf
     env_names: list[EnvironmentName] = []
     for round_data in rounds:
         tasks = await get_tournament_tasks(round_data.round_id, config.psql_db)
-        if tasks:
-            task_obj = await task_sql.get_task(tasks[0].task_id, config.psql_db)
+        for tournament_task in tasks:
+            task_obj = await task_sql.get_task(tournament_task.task_id, config.psql_db)
             if task_obj and hasattr(task_obj, "environment_names") and task_obj.environment_names:
                 env_names.extend(task_obj.environment_names)
     if env_names:

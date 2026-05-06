@@ -151,7 +151,7 @@ class Group(BaseModel):
 
 
 class BaseRound(BaseModel):
-    round_id: str = ""
+    round_id: str
     round_number: int = 1
 
 

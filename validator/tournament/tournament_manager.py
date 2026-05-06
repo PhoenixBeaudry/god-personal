@@ -371,7 +371,7 @@ async def create_next_round(
         if isinstance(round_structure, GroupRound):
             await insert_tournament_groups_with_members(round_structure.round_id, round_structure, psql_db)
         else:
-            await insert_tournament_pairs(next_round_id, round_structure.pairs, psql_db)
+            await insert_tournament_pairs(round_structure.round_id, round_structure.pairs, psql_db)
 
         logger.info(f"Created next round {next_round_id}")
 

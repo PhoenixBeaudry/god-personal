@@ -67,10 +67,11 @@ def sample_round_data():
 @pytest.fixture
 def sample_group_round():
     return GroupRound(
+        round_id="test_round_001",
         groups=[
             Group(member_ids=["hotkey1", "hotkey2", "hotkey3"], task_ids=[]),
             Group(member_ids=["hotkey4", "hotkey5"], task_ids=[]),
-        ]
+        ],
     )
 
 

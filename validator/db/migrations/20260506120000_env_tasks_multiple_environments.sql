@@ -1,7 +1,7 @@
 -- migrate:up
 
 -- Add environment_names array column, migrate existing data, drop old column.
-ALTER TABLE env_tasks ADD COLUMN IF NOT EXISTS environment_names TEXT[];
+ALTER TABLE env_tasks ADD COLUMN IF NOT EXISTS environment_names TEXT[] DEFAULT '{}';
 
 UPDATE env_tasks
 SET environment_names = ARRAY[environment_name]
