@@ -89,6 +89,8 @@ class TournamentData(BaseModel):
         "score = loss, so lower is better. Higher diff = better perf = less burn.",
     )
     diff_report: str | None = Field(default=None, description="Optional S3 URL for the winner-vs-previous-boss diff report.")
+    winner_model_repo: str | None = Field(default=None, description="HF repo of the winning trained model (for next tournament's final round)")
+    winner_model_base: str | None = Field(default=None, description="Base model the winner was trained from (for compatibility check)")
     updated_at: datetime | None = Field(
         default=None,
         description="Timestamp when the tournament was last updated (typically when it completed). "

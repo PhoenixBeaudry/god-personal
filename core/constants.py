@@ -30,6 +30,15 @@ class EvalType(str, Enum):
     PVP = "pvp"
 
 
+class TrainingStartPoint(str, Enum):
+    """What model a task trains from."""
+
+    DEFAULT = "default"
+    CONTINUATION = "continuation"
+    FROM_SCRATCH = "from_scratch"
+    PREVIOUS_WINNER = "previous_winner"
+
+
 class EnvironmentName(str, Enum):
     GIN_RUMMY = "gin_rummy"
     LIARS_DICE = "liars_dice"

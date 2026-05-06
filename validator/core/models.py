@@ -13,6 +13,7 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from core.constants import EnvironmentName
+from core.constants import TrainingStartPoint
 from core.models.tournament_models import EnvironmentWeight
 from core.constants import YARN_VALID_FACTORS
 from core.models.model_prep_models import AugmentationConfig
@@ -115,6 +116,7 @@ class RawTask(BaseModel):
     augmentation_config: AugmentationConfig | None = None
     augmented_model_id: str | None = None
     baseline_stats: BaselineStats | None = None
+    training_start_point: TrainingStartPoint = TrainingStartPoint.DEFAULT
 
     # Turn off protected namespace for model
     model_config = ConfigDict(protected_namespaces=())

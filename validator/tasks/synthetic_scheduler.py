@@ -439,8 +439,10 @@ async def create_synthetic_env_task(
     num_environments: int = 1,
     exclude_environments: list[EnvironmentName] | None = None,
     round_number: int = 1,
+    model_id_override: str | None = None,
+    training_start_point: TrainingStartPoint = TrainingStartPoint.DEFAULT,
 ) -> RawTask:
-    model_id = random.choice(SUPPORTED_ENV_MODELS)
+    model_id = model_id_override or random.choice(SUPPORTED_ENV_MODELS)
     dummy_dataset = "env_task_dummy_dataset"
 
     number_of_hours = _get_training_hours_for_environment_task(round_number)
