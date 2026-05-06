@@ -249,6 +249,13 @@ class GroupStagePoints(BaseModel):
     points: float
 
 
+class EvalHotkeyResults(BaseModel):
+    """Outcome of evaluating a batch of hotkeys."""
+
+    evaluated: list[str] = Field(description="Hotkeys that were successfully evaluated")
+    failed: list[str] = Field(default_factory=list, description="Hotkeys that failed evaluation")
+
+
 class TournamentTypeResult(BaseModel):
     scores: list[TournamentScore]
     prev_winner_hotkey: str | None

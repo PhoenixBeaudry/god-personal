@@ -273,11 +273,11 @@ async def _evaluate_and_update_hotkeys(task: AnyTypeRawTask, hotkeys: list[str],
     assert task.task_id is not None
 
     try:
-        evaluated_hotkeys, failed_hotkeys = await evaluate_and_score_hotkeys(task, hotkeys, num_gpus, config)
-        not_evaluated_hotkeys = [h for h in hotkeys if h not in set(evaluated_hotkeys)]
-        failed_set = set(failed_hotkeys)
+        eval_result = await evaluate_and_score_hotkeys(task, hotkeys, num_gpus, config)
+        not_evaluated_hotkeys = [h for h in hotkeys if h not in set(eval_result.evaluated)]
+        failed_set = set(eval_result.failed)
         failed_set.update(not_evaluated_hotkeys)
-        success_hotkeys = [evaluated_hotkey for evaluated_hotkey in evaluated_hotkeys if evaluated_hotkey not in failed_set]
+        success_hotkeys = [h for h in eval_result.evaluated if h not in failed_set]
 
         await tasks_sql.update_task_evaluations_status(task.task_id, success_hotkeys, "success", config.psql_db)
         await tasks_sql.update_task_evaluations_status(

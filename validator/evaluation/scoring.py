@@ -36,8 +36,17 @@ from validator.db.sql.tasks import get_expected_repo_name
 from validator.db.sql.tasks import get_nodes_assigned_to_task
 from validator.db.sql.tournaments import get_tournament_id_by_task_id
 from validator.db.sql.tournaments import get_training_status_for_task_and_hotkeys
+from core import constants as cst
+from core.models.pvp_models import PvPGroupModelSpec
+from core import constants as core_cst
+from core.models.pvp_models import PvPGroupModelSpec
+from core.models.tournament_models import EvalHotkeyResults
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_image
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_text
+from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
+from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
+from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
+from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
 from validator.utils.logging import LogContext
 from validator.utils.logging import add_context_tag
 from validator.utils.logging import get_logger
@@ -503,7 +512,16 @@ async def process_miners_pool(
             logger.info(f"Constructed repo {repo} for miner {miner.hotkey}")
             miner_repos[miner.hotkey] = repo
 
-    if miner_repos:
+    if miner_repos and _should_use_pvp(task):
+        try:
+            results.extend(await _run_pvp_group_eval(task, miner_repos, config))
+        except Exception as e:
+            logger.error(f"PvP group evaluation failed: {e}", exc_info=True)
+            results.extend(
+                _create_failed_miner_result(hk, f"PvP eval failed: {str(e)[:350]}", task.task_type)
+                for hk in miner_repos if hk not in [r.hotkey for r in results]
+            )
+    elif miner_repos:
         try:
             eval_results = await _evaluate_submissions(
                 task=task,
@@ -586,16 +604,72 @@ async def process_miners_pool(
     return results
 
 
+def _should_use_pvp(task: AnyTypeRawTask) -> bool:
+    """Check if this task should use PvP evaluation based on its game's eval_type."""
+    if task.task_type != TaskType.ENVIRONMENTTASK:
+        return False
+    env_name = getattr(task, "environment_name", None)
+    if env_name is None or env_name not in core_cst.ENVIRONMENT_CONFIGS:
+        return False
+    return core_cst.ENVIRONMENT_CONFIGS[env_name].eval_type == core_cst.EvalType.PVP
+
+
+async def _run_pvp_group_eval(
+    task: AnyTypeRawTask,
+    miner_repos: dict[str, str],
+    config: Config,
+) -> list[MinerResultsText]:
+    """Run PvP group eval and convert standings to MinerResultsText."""
+    base_model = task.augmented_model_id or task.model_id
+    env_name = getattr(task, "environment_name", None)
+    environment_names = [env_name] if env_name else list(core_cst.EnvironmentName)
+
+    eval_seed = await get_env_task_eval_seed(task.task_id, config.psql_db)
+    seed = eval_seed if eval_seed is not None else cts.ENV_EVAL_DEFAULT_SEED
+
+    participants = [
+        PvPGroupModelSpec(repo=repo, hotkey=hotkey)
+        for hotkey, repo in miner_repos.items()
+    ]
+
+    logger.info(f"PvP group eval: task={task.task_id}, {len(participants)} participants, envs={environment_names}")
+
+    group_results = await run_evaluation_pvp_group(
+        participants=participants,
+        base_model=base_model,
+        environment_names=environment_names,
+        seed=seed,
+    )
+
+    standings = compute_pvp_tournament_points(group_results)
+    points_by_hotkey = {s.hotkey: s.points for s in standings}
+
+    return [
+        MinerResultsText(
+            hotkey=hotkey,
+            test_loss=points_by_hotkey.get(hotkey, 0.0),
+            synth_loss=points_by_hotkey.get(hotkey, 0.0),
+            is_finetune=True,
+            submission=Submission(
+                task_id=task.task_id,
+                hotkey=hotkey,
+                repo=repo,
+                created_on=datetime.now(),
+                updated_on=datetime.now(),
+            ),
+            task_type=task.task_type,
+        )
+        for hotkey, repo in miner_repos.items()
+    ]
+
+
 async def evaluate_and_score_hotkeys(
     task: AnyTypeRawTask,
     hotkeys: list[str],
     num_gpus: int,
     config: Config,
-) -> tuple[list[str], list[str]]:
-    """
-    Evaluate a subset of task hotkeys, persist raw losses, and return:
-    (evaluated_hotkeys, failed_hotkeys).
-    """
+) -> EvalHotkeyResults:
+    """Evaluate a subset of task hotkeys, persist raw losses, return results."""
     assert task.task_id is not None, "Task ID must be present"
 
     miner_pool = await get_nodes_assigned_to_task(str(task.task_id), config.psql_db)
@@ -605,10 +679,10 @@ async def evaluate_and_score_hotkeys(
     logger.info(f"Beginning evaluation for task {task.task_id} with {len(miner_pool)} miners")
     task_results = await process_miners_pool(miner_pool, task, config, num_gpus, dataset_type)
 
-    failed_hotkeys = [result.hotkey for result in task_results if (not result.is_finetune) or np.isnan(result.test_loss)]
-    evaluated_hotkeys = [result.hotkey for result in task_results]
+    failed = [r.hotkey for r in task_results if (not r.is_finetune) or np.isnan(r.test_loss)]
+    evaluated = [r.hotkey for r in task_results]
     await _persist_raw_task_results(task, task_results, config.psql_db)
-    return evaluated_hotkeys, failed_hotkeys
+    return EvalHotkeyResults(evaluated=evaluated, failed=failed)
 
 
 async def finalize_task_scores_from_raw_losses(
