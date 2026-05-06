@@ -253,7 +253,7 @@ async def _save_winner_model_repo(
         winner_repo = f"{RAYONLABS_HF_USERNAME}/{repo_name}"
 
         if task_obj.training_start_point == TrainingStartPoint.PREVIOUS_WINNER:
-            await update_tournament_winner_model(tournament_id, winner_repo, task_obj.model_id, psql_db)
+            await update_tournament_winner_model(tournament_id, winner_repo, t_cst.ENV_TARGET_TOURN_MODEL, psql_db)
             return
 
         if not fallback_repo:

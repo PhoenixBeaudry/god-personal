@@ -209,7 +209,7 @@ async def _get_columns_for_instruct_dataset(
     return columns
 
 
-def _get_training_hours_from_num_rows(num_rows: int) -> tuple[int, int]:
+def _get_training_hours_from_num_rows(num_rows: int) -> int:
     """Randomly select training hours for a given dataset size in bytes based on range bins."""
     min_hours, max_hours = 0, 0
     for min_rows, max_rows in vcst.INSTRUCT_TEXT_DATASET_BINS_TO_TRAINING_HOURS_RANGE.keys():
@@ -344,8 +344,7 @@ async def _generate_generic_reward_functions_from_llm(keypair: Keypair, num_rewa
 
     result = await post_to_nineteen_chat_with_reasoning(payload, keypair, vcst.END_OF_REASONING_TAG)
 
-    if result:
-        valid_reward_functions = process_reward_functions(result)
+    valid_reward_functions = process_reward_functions(result) if result else []
 
     reward_functions = [
         RewardFunction(reward_func=valid_reward_function, is_generic=True, reward_weight=1.0)

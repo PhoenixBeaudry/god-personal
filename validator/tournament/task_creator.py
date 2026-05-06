@@ -17,6 +17,7 @@ from validator.core.models import RawTask
 from validator.db.sql import tasks as task_sql
 from validator.db.sql.tournaments import add_tournament_tasks
 from validator.db.sql.tournaments import get_latest_completed_tournament
+from validator.db.sql.tournaments import get_tournament_rounds
 from validator.db.sql.tournaments import get_tournament_tasks
 from validator.tasks.diffusion_synth import create_synthetic_image_task
 from validator.tasks.synthetic_scheduler import _get_dpo_datasets
@@ -90,10 +91,23 @@ async def create_environment_tournament_tasks(
     return [str(task.task_id) for task in tasks]
 
 
-async def _get_final_task_3_model(tournament_id: str, config: Config) -> str:
-    """Determine model for final task 3 (winner continuation).
+async def _get_tournament_base_model(tournament_id: str, config: Config) -> str | None:
+    """Look up the base model used in R1 of this tournament so all rounds use the same model."""
+    rounds = await get_tournament_rounds(tournament_id, config.psql_db)
+    if not rounds:
+        return None
+    r1 = min(rounds, key=lambda r: r.round_number)
+    r1_tasks = await get_tournament_tasks(r1.round_id, config.psql_db)
+    if not r1_tasks:
+        return None
+    task_obj = await task_sql.get_task(r1_tasks[0].task_id, config.psql_db)
+    return task_obj.model_id if task_obj else None
 
-    Previous winner model if available and compatible, else TARGET_TOURN_MODEL.
+
+async def _get_prev_tourn_winner_model(tournament_id: str, config: Config) -> str:
+    """Get the previous tournament winner's model for the PREVIOUS_WINNER boss task.
+
+    Returns the winner's HF repo if available and base-compatible, else ENV_TARGET_TOURN_MODEL.
     """
     prev_tournament = await get_latest_completed_tournament(
         config.psql_db, TournamentType.ENVIRONMENT, exclude_tournament_id=tournament_id,
@@ -131,12 +145,13 @@ async def _create_environment_boss_round_tasks(
     instruct_datasets = _get_instruct_text_datasets(config.keypair)
     tasks: list[RawTask] = await _get_existing_tasks(existing_tasks, config) if existing_tasks else []
 
-    task_3_model = await _get_final_task_3_model(tournament_id, config)
+    tournament_base_model = await _get_tournament_base_model(tournament_id, config)
+    prev_tourn_winner_model = await _get_prev_tourn_winner_model(tournament_id, config)
 
     boss_task_configs = [
-        (None, TrainingStartPoint.CONTINUATION),
+        (tournament_base_model, TrainingStartPoint.CONTINUATION),
         (None, TrainingStartPoint.FROM_SCRATCH),
-        (task_3_model, TrainingStartPoint.PREVIOUS_WINNER),
+        (prev_tourn_winner_model, TrainingStartPoint.PREVIOUS_WINNER),
     ]
 
     for i in range(len(tasks), t_cst.ENV_FINAL_ROUND_TASK_COUNT):
@@ -169,6 +184,9 @@ async def _create_environment_group_tasks(
         f"1 task per group, {num_envs} envs per task"
     )
 
+    # R2+ must use the same base model as R1
+    tournament_base_model = await _get_tournament_base_model(tournament_id, config) if round_data.round_number > 1 else None
+
     models = _get_text_models(config.keypair)
     instruct_datasets = _get_instruct_text_datasets(config.keypair)
     tasks: list[RawTask] = []
@@ -198,6 +216,7 @@ async def _create_environment_group_tasks(
             task = await create_synthetic_env_task(
                 config, models, instruct_datasets,
                 num_environments=num_envs, round_number=round_data.round_number,
+                model_id_override=tournament_base_model,
                 training_start_point=start_point,
             )
             reference_task = task
@@ -462,7 +481,7 @@ async def _create_probability_based_text_tasks(
         task = await _create_single_probability_task(config, models, instruct_datasets, dpo_datasets, instruct_prob, dpo_prob)
 
         await _create_and_register_tournament_task(
-            task, tournament_id, round_id, config, pair_id=pair_id
+            task, tournament_id, round_data.round_id, config, pair_id=pair_id
         )
         tasks.append(task)
     return tasks
