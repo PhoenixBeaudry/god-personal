@@ -95,26 +95,26 @@ def count_failed_trainings_percentage(trainings: dict[str, str]) -> bool:
     return (failures / total) > t_cst.PERCENTAGE_OF_TASKS_SHOULD_BE_SUCCESS
 
 
-def organise_tournament_round(nodes: list[Node], config: Config, tournament_type: TournamentType | None = None) -> Round:
+def organise_tournament_round(
+    nodes: list[Node],
+    config: Config,
+    tournament_type: TournamentType | None = None,
+    round_id: str = "",
+    round_number: int = 1,
+) -> Round:
     nodes_copy = nodes.copy()
     random.shuffle(nodes_copy)
 
     # Environment tournaments always use a single group round with all participants
-    # Minimum group size required for environment tournaments
     if tournament_type == TournamentType.ENVIRONMENT:
         if len(nodes_copy) < t_cst.MIN_ENVIRONMENT_GROUP_SIZE:
-            logger.warning(
-                f"Environment tournament requires minimum {t_cst.MIN_ENVIRONMENT_GROUP_SIZE} participants, "
-                f"but only {len(nodes_copy)} provided. "
-                f"Cannot create tournament round."
-            )
             raise ValueError(
                 f"Environment tournament requires minimum {t_cst.MIN_ENVIRONMENT_GROUP_SIZE} participants, "
                 f"got {len(nodes_copy)}"
             )
         all_hotkeys = [node.hotkey for node in nodes_copy]
         single_group = Group(member_ids=all_hotkeys, task_ids=[])
-        return GroupRound(groups=[single_group])
+        return GroupRound(groups=[single_group], round_id=round_id, round_number=round_number)
 
     if len(nodes_copy) <= t_cst.MAX_NUMBER_OF_MINERS_FOR_KNOCKOUT_ROUND:
         hotkeys = [node.hotkey for node in nodes_copy]
@@ -130,7 +130,7 @@ def organise_tournament_round(nodes: list[Node], config: Config, tournament_type
         for i in range(0, len(hotkeys), 2):
             pairs.append((hotkeys[i], hotkeys[i + 1]))
         random.shuffle(pairs)
-        return KnockoutRound(pairs=pairs)
+        return KnockoutRound(pairs=pairs, round_id=round_id, round_number=round_number)
     else:
         num_groups = math.ceil(len(nodes_copy) / t_cst.EXPECTED_GROUP_SIZE)
 
@@ -151,7 +151,7 @@ def organise_tournament_round(nodes: list[Node], config: Config, tournament_type
             idx += group_sizes[g]
 
         random.shuffle(groups)
-        return GroupRound(groups=groups)
+        return GroupRound(groups=groups, round_id=round_id, round_number=round_number)
 
 
 async def _create_first_round(
@@ -159,7 +159,7 @@ async def _create_first_round(
 ):
     round_id = generate_round_id(tournament_id, 1)
     with LogContext(round_id=round_id):
-        round_structure = organise_tournament_round(nodes, config, tournament_type)
+        round_structure = organise_tournament_round(nodes, config, tournament_type, round_id=round_id, round_number=1)
 
         round_type = RoundType.KNOCKOUT if isinstance(round_structure, KnockoutRound) else RoundType.GROUP
 
@@ -185,14 +185,14 @@ async def _create_first_round(
 
 
 async def _create_tournament_tasks(
-    tournament_id: str, round_id: str, round_structure: Round, tournament_type: TournamentType, is_final: bool, config: Config,
+    tournament_id: str, round_structure: Round, tournament_type: TournamentType, is_final: bool, config: Config,
 ) -> list[str]:
     if tournament_type == TournamentType.TEXT:
-        tasks = await create_text_tournament_tasks(round_structure, tournament_id, round_id, config, is_final)
+        tasks = await create_text_tournament_tasks(round_structure, tournament_id, config, is_final)
     elif tournament_type == TournamentType.IMAGE:
-        tasks = await create_image_tournament_tasks(round_structure, tournament_id, round_id, config, is_final)
+        tasks = await create_image_tournament_tasks(round_structure, tournament_id, config, is_final)
     elif tournament_type == TournamentType.ENVIRONMENT:
-        tasks = await create_environment_tournament_tasks(round_structure, tournament_id, round_id, config, is_final)
+        tasks = await create_environment_tournament_tasks(round_structure, tournament_id, config, is_final)
     else:
         raise ValueError(f"Unknown tournament type: {tournament_type}")
 
@@ -350,7 +350,9 @@ async def create_next_round(
         logger.info(f"Successfully found {len(winner_nodes)} nodes out of {len(winners)} winners")
 
         round_structure = organise_tournament_round(
-            winner_nodes, config, tournament.tournament_type if tournament.tournament_type == TournamentType.ENVIRONMENT else None
+            winner_nodes, config,
+            tournament.tournament_type if tournament.tournament_type == TournamentType.ENVIRONMENT else None,
+            round_id=next_round_id, round_number=next_round_number,
         )
 
         round_type = RoundType.KNOCKOUT if isinstance(round_structure, KnockoutRound) else RoundType.GROUP
@@ -903,12 +905,10 @@ async def process_pending_rounds(config: Config):
                         logger.info(f"About to create tournament tasks for round {round_data.round_id}")
                         tasks = await _create_tournament_tasks(
                             round_data.tournament_id,
-                            round_data.round_id,
                             round_structure,
                             tournament.tournament_type,
                             round_data.is_final_round,
                             config,
-                            round_number=round_data.round_number,
                         )
                         logger.info(f"Created {len(tasks)} tasks for round {round_data.round_id}")
 

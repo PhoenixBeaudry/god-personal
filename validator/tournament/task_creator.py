@@ -36,14 +36,14 @@ logger = get_logger(__name__)
 async def create_text_tournament_tasks(
     round_data: Round,
     tournament_id: str,
-    round_id: str,
     config: Config,
     is_final_round: bool = False,
 ) -> list[str]:
+    round_id = round_data.round_id
     if isinstance(round_data, GroupRound):
         num_groups = len(round_data.groups)
         logger.info(f"Creating text tournament for {num_groups} groups (1 task per group)")
-        tasks = await _create_group_text_tasks(round_data, tournament_id, round_id, config, is_final_round)
+        tasks = await _create_group_text_tasks(round_data, tournament_id, config, is_final_round)
     elif is_final_round:
         task_types = [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK]
         tasks_per_type = t_cst.FINAL_ROUND_TEXT_TASKS // len(task_types)
@@ -52,58 +52,54 @@ async def create_text_tournament_tasks(
     else:
         num_pairs = len(round_data.pairs)
         logger.info(f"Creating text tournament for {num_pairs} knockout pairs (probability-based)")
-        tasks = await _create_probability_based_text_tasks(round_data, tournament_id, round_id, config)
+        tasks = await _create_probability_based_text_tasks(round_data, tournament_id, config)
 
     return [str(task.task_id) for task in tasks]
 
 
 async def create_image_tournament_tasks(
-    round_data: Round, tournament_id: str, round_id: str, config: Config, is_final_round: bool = False
+    round_data: Round, tournament_id: str, config: Config, is_final_round: bool = False,
 ) -> list[str]:
+    round_id = round_data.round_id
     image_models = _get_image_models(config.keypair)
     tasks = []
 
     if isinstance(round_data, GroupRound):
-        tasks = await _create_group_image_tasks(round_data, tournament_id, round_id, config, image_models)
+        tasks = await _create_group_image_tasks(round_data, tournament_id, config, image_models)
     elif is_final_round:
         tasks = await _create_new_image_boss_round_tasks(tournament_id, round_id, config)
     else:
-        tasks = await _create_knockout_image_tasks(round_data, tournament_id, round_id, config, image_models)
+        tasks = await _create_knockout_image_tasks(round_data, tournament_id, config, image_models)
 
     return [str(task.task_id) for task in tasks]
 
 
 async def create_environment_tournament_tasks(
-    round_data: Round, tournament_id: str, round_id: str, config: Config,
-    is_final_round: bool = False, round_number: int = 1,
+    round_data: Round, tournament_id: str, config: Config, is_final_round: bool = False,
 ) -> list[str]:
-    """
-    Create environment tournament tasks.
-    """
+    """Create environment tournament tasks."""
     if not isinstance(round_data, GroupRound):
         raise ValueError("Environment tournaments only support group rounds")
 
-    tasks = await _create_environment_group_tasks(
-        round_data, tournament_id, round_id, config, is_final_round, round_number,
-    )
+    tasks = await _create_environment_group_tasks(round_data, tournament_id, config, is_final_round)
     return [str(task.task_id) for task in tasks]
 
 
 async def _create_environment_group_tasks(
-    round_data: GroupRound, tournament_id: str, round_id: str, config: Config,
-    is_final_round: bool = False, round_number: int = 1,
+    round_data: GroupRound, tournament_id: str, config: Config, is_final_round: bool = False,
 ) -> list[RawTask]:
     """
     Create environment task(s) for all participants. Each task contains multiple
     environments — the count scales with round number (R1=2, R2=4, R3=6, capped
     at available environments).
     """
-    num_envs = round_number * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
+    round_id = round_data.round_id
+    num_envs = round_data.round_number * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
     num_envs = min(num_envs, len(EnvironmentName))
     expected_task_count = t_cst.ENV_FINAL_ROUND_TASK_COUNT if is_final_round else 1
     logger.info(
-        f"Creating environment tournament with {len(round_data.groups)} groups - "
-        f"{expected_task_count} task(s) for all participants"
+        f"Creating environment tournament R{round_data.round_number} with {len(round_data.groups)} groups - "
+        f"{expected_task_count} task(s), {num_envs} envs per task"
     )
 
     existing_tasks = await _get_existing_tasks_by_identifier(round_id, config)
@@ -120,36 +116,28 @@ async def _create_environment_group_tasks(
 
     logger.info(f"Creating {expected_task_count - len(existing_tasks)} environment task(s) for all participants")
 
-    force_env: EnvironmentName | None = None
-    if is_final_round and expected_task_count == 1 and t_cst.FORCED_BOSS_ENVIRONMENT:
-        force_env = t_cst.FORCED_BOSS_ENVIRONMENT
-        logger.info(f"Final round: forcing boss environment to {force_env}")
-
-    # Exclude games used in previous rounds so each round plays a different game.
-    # Also exclude the forced boss game from non-final rounds so it's reserved for the boss round.
     exclude_envs = await _get_previous_round_environment_names(tournament_id, config)
     if not is_final_round and t_cst.FORCED_BOSS_ENVIRONMENT:
         if t_cst.FORCED_BOSS_ENVIRONMENT not in exclude_envs:
             exclude_envs.append(t_cst.FORCED_BOSS_ENVIRONMENT)
-            logger.info(f"Non-final round: excluding reserved boss environment {t_cst.FORCED_BOSS_ENVIRONMENT}")
 
     group_id = f"{round_id}_group_001"
     tasks: list[RawTask] = await _get_existing_tasks(existing_tasks, config) if existing_tasks else []
-    selected_envs = {
-        task.environment_name
-        for task in tasks
-        if hasattr(task, "environment_name") and task.environment_name
-    }
-    exclude_envs.extend(list(selected_envs))
+
+    # Collect envs already selected in existing tasks to avoid duplicates
+    already_selected: list[EnvironmentName] = []
+    for t in tasks:
+        already_selected.extend(getattr(t, "environment_names", []))
+    exclude_envs.extend(already_selected)
 
     while len(tasks) < expected_task_count:
         task = await create_synthetic_env_task(
-            config, models, instruct_datasets, exclude_environments=exclude_envs, force_environment=force_env
+            config, models, instruct_datasets, num_environments=num_envs, exclude_environments=exclude_envs,
         )
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
-        if hasattr(task, "environment_name") and task.environment_name:
-            exclude_envs.append(task.environment_name)
+        already_selected.extend(getattr(task, "environment_names", []))
+        exclude_envs.extend(getattr(task, "environment_names", []))
 
     created_ids = [str(task.task_id) for task in tasks]
     logger.info(f"Created environment tournament task(s) for all participants: {created_ids}")
