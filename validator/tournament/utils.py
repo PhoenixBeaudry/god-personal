@@ -972,14 +972,8 @@ async def get_group_winners(
             f"{[(hotkey, f'{loss:.6f}') for hotkey, loss in sorted_participants]}"
         )
 
-        # For environment tournaments, exclude boss from advancement ranking (boss auto-advances)
-        if is_environment:
-            non_boss_sorted = [(h, s) for h, s in sorted_participants if h != EMISSION_BURN_HOTKEY]
-            num_to_advance = min(TOP_WINNERS_TO_ADVANCE, len(non_boss_sorted))
-            group_winners = [hotkey for hotkey, _ in non_boss_sorted[:num_to_advance]]
-        else:
-            num_to_advance = min(TOP_WINNERS_TO_ADVANCE, len(sorted_participants))
-            group_winners = [hotkey for hotkey, _ in sorted_participants[:num_to_advance]]
+        num_to_advance = min(TOP_WINNERS_TO_ADVANCE, len(sorted_participants))
+        group_winners = [hotkey for hotkey, _ in sorted_participants[:num_to_advance]]
 
         logger.info(f"Group {group_id}: Advancing top {num_to_advance} by adjusted loss: {group_winners}")
         all_winners.extend(group_winners)

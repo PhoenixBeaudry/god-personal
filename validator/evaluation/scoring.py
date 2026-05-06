@@ -318,7 +318,6 @@ async def _evaluate_submissions(
             test_results = await run_evaluation_basilica_text(dataset=task.test_data, **evaluation_params)
         else:
             test_results = await run_evaluation_basilica_text(dataset="proxy", **evaluation_params)
-            test_eval_results = test_results.results
 
         test_eval_results = test_results.results
         task.model_params_count = test_results.base_model_params_count
@@ -774,88 +773,3 @@ def has_disk_cache_error(task_results: list[MinerResultsText | MinerResultsImage
     return False
 
 
-async def evaluate_and_score(task: AnyTypeRawTask, num_gpus: int, config: Config) -> AnyTypeRawTask:
-    assert task.task_id is not None, "Task ID must be present"
-    assert task.test_data is not None, "Test data must be present"
-
-    miner_pool = await get_nodes_assigned_to_task(str(task.task_id), config.psql_db)
-    
-    # For tournament tasks, only evaluate miners with training status "success"
-    tournament_id = await get_tournament_id_by_task_id(str(task.task_id), config.psql_db)
-    if tournament_id:
-        logger.info(f"Task {task.task_id} is a tournament task (tournament_id: {tournament_id}), filtering to only evaluate miners with training status 'success'")
-        hotkeys = [node.hotkey for node in miner_pool]
-        training_statuses = await get_training_status_for_task_and_hotkeys(str(task.task_id), hotkeys, config.psql_db)
-        
-        # Filter to only include miners with SUCCESS training status
-        filtered_miner_pool = [
-            node for node in miner_pool 
-            if training_statuses.get(node.hotkey) == TrainingStatus.SUCCESS.value
-        ]
-        
-        skipped_count = len(miner_pool) - len(filtered_miner_pool)
-        if skipped_count > 0:
-            skipped_hotkeys = [
-                node.hotkey for node in miner_pool 
-                if training_statuses.get(node.hotkey) != TrainingStatus.SUCCESS.value
-            ]
-            logger.info(
-                f"Skipping {skipped_count} miners without 'success' training status: {skipped_hotkeys}"
-            )
-        
-        miner_pool = filtered_miner_pool
-        logger.info(f"Filtered to {len(miner_pool)} miners with 'success' training status for tournament task evaluation")
-    
-    dataset_type = _get_dataset_type(task)
-
-    logger.info(f"Beginning evaluation for task {task.task_id} with {len(miner_pool)} miners")
-    task_results = await process_miners_pool(miner_pool, task, config, num_gpus, dataset_type)
-
-    if has_disk_cache_error(task_results):
-        if task.n_eval_attempts < cts.MAX_EVAL_ATTEMPTS - 1:
-            task.status = TaskStatus.PREEVALUATION
-            add_context_tag("status", task.status.value)
-            logger.info(f"Task {task.task_id} marked as pre-evaluation due to disk cache error")
-            task.n_eval_attempts = (task.n_eval_attempts or 0) + 1
-            return task
-        else:
-            logger.info(
-                f"Task {task.task_id} has a disk cache error but has reached the maximum number of retries. "
-                "Will let it continue with what we have."
-            )
-
-    logger.info("Calculating final scores...")
-    task_results = calculate_miner_ranking_and_scores(task_results)
-    await _update_scores(task, task_results, config.psql_db)
-    all_scores_zero = all(result.score == 0.0 for result in task_results)
-
-    if cts.DELETE_S3_AFTER_COMPLETE:
-        if task.task_type in [
-            TaskType.INSTRUCTTEXTTASK,
-            TaskType.DPOTASK,
-            TaskType.GRPOTASK,
-            TaskType.CHATTASK,
-            TaskType.IMAGETASK,
-            TaskType.ENVIRONMENTTASK
-        ]:
-            files_to_delete = [task.training_data, task.test_data]
-        else:
-            raise ValueError(f"Unknown task type: {task.task_type}")
-
-    if all_scores_zero:
-        if task.n_eval_attempts < cts.MAX_EVAL_ATTEMPTS - 1:
-            task.status = TaskStatus.PREEVALUATION
-            add_context_tag("status", task.status.value)
-            logger.info(f"All scores are zero for task {task.task_id}, setting status to PREEVALUATION to re-evaluate")
-        else:
-            task.status = TaskStatus.FAILURE
-            add_context_tag("status", task.status.value)
-            logger.info(f"Task {task.task_id} marked as failure")
-            await _clear_up_s3(files_to_delete)
-    else:
-        await _clear_up_s3(files_to_delete)
-        task.status = TaskStatus.SUCCESS
-        add_context_tag("status", task.status.value)
-        logger.info(f"Task {task.task_id} completed successfully with non-zero scores")
-    task.n_eval_attempts = (task.n_eval_attempts or 0) + 1
-    return task
