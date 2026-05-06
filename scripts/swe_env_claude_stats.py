@@ -46,7 +46,7 @@ OUTPUT_ROOT = Path(__file__).resolve().parent / "swe_claude_stats"
 
 client = docker.from_env()
 
-ENV_IMAGE = "phoenixbeaudry/swe-infinite:v1"
+ENV_IMAGE = "phoenixbeaudry/swe:claudeswe"
 NETWORK_NAME = "agent_eval_net"
 
 
