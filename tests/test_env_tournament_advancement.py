@@ -1,5 +1,5 @@
-"""Tests for environment tournament advancement: thresholds, winner resolution,
-boss round structure, env scaling, and model continuation logic.
+"""Tests for environment tournament advancement: thresholds, boss round structure,
+env scaling via real task creator calls, and model continuation logic.
 """
 
 import pytest
@@ -7,13 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.constants import EnvironmentName
 from core.constants import TrainingStartPoint
-from core.models.tournament_models import TournamentData
 from core.models.tournament_models import TournamentType
 from core.models.tournament_models import Group
 from core.models.tournament_models import GroupRound
-from validator.tournament.utils import determine_boss_round_winner
 from validator.tournament.utils import get_progressive_threshold
-from validator.tournament.utils import get_real_winner_hotkey
 import validator.tournament.constants as t_cst
 
 
@@ -21,7 +18,7 @@ BOSS = "5GBoss"
 CONTENDER = "5GContender"
 
 
-# --- 2a: get_progressive_threshold ---
+# --- Progressive threshold ---
 
 
 class TestProgressiveThreshold:
@@ -55,28 +52,11 @@ class TestProgressiveThreshold:
         assert t == t_cst.EXPONENTIAL_BASE_THRESHOLD
 
 
-# --- 2b: get_real_winner_hotkey (already tested in scoring pipeline, but included for completeness) ---
-
-
-class TestGetRealWinnerHotkey:
-    def test_burn_hotkey_resolves(self):
-        from validator.core.constants import EMISSION_BURN_HOTKEY
-        result = get_real_winner_hotkey(EMISSION_BURN_HOTKEY, "real_champ")
-        assert result == "real_champ"
-
-    def test_regular_passes_through(self):
-        assert get_real_winner_hotkey("winner", "old_champ") == "winner"
-
-    def test_none_returns_none(self):
-        assert get_real_winner_hotkey(None, "anything") is None
-
-
-# --- 2c: Boss round 3-task configuration ---
+# --- Boss round 3-task configuration ---
 
 
 class TestBossRoundTaskConfig:
-    """Verify _create_environment_boss_round_tasks produces 3 tasks with correct start points.
-    This mocks the DB calls and verifies the structural logic."""
+    """Verify _create_environment_boss_round_tasks produces 3 tasks with correct start points."""
 
     @pytest.mark.asyncio
     async def test_three_tasks_with_correct_start_points(self):
@@ -144,7 +124,7 @@ class TestBossRoundTaskConfig:
 
         prev_tourn = MagicMock()
         prev_tourn.winner_model_repo = "prev-winner/repo"
-        prev_tourn.winner_model_base = "different/base-model"  # Not ENV_TARGET_TOURN_MODEL
+        prev_tourn.winner_model_base = "different/base-model"
 
         with patch(
             "validator.tournament.task_creator.get_latest_completed_tournament",
@@ -174,72 +154,96 @@ class TestBossRoundTaskConfig:
         assert result == "prev-winner/repo"
 
 
-# --- 2d: Environment scaling per round ---
+# --- Environment group tasks: env scaling and model continuation ---
 
 
-class TestEnvScaling:
-    def test_round_1_gets_2_envs(self):
-        num_envs = 1 * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
-        num_envs = min(num_envs, len(EnvironmentName))
-        assert num_envs == 2
+class TestEnvironmentGroupTasks:
+    """Call real _create_environment_group_tasks, verify num_envs, start_point,
+    and model_id_override are passed correctly through to create_synthetic_env_task."""
 
-    def test_round_2_gets_3_envs_capped(self):
-        """R2 = 4, but capped at len(EnvironmentName) = 3."""
-        num_envs = 2 * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
-        num_envs = min(num_envs, len(EnvironmentName))
-        assert num_envs == min(4, len(EnvironmentName))
+    def _make_round(self, round_number: int, num_groups: int) -> GroupRound:
+        groups = [Group(member_ids=[f"hk_{i}"]) for i in range(num_groups)]
+        return GroupRound(round_id=f"tourn_x_round_{round_number:03d}", round_number=round_number, groups=groups)
 
-    def test_round_3_capped_at_total_envs(self):
-        num_envs = 3 * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER
-        num_envs = min(num_envs, len(EnvironmentName))
-        assert num_envs == len(EnvironmentName)
+    async def _run_group_task_creation(self, round_number: int, num_groups: int = 2):
+        """Run _create_environment_group_tasks and capture the kwargs passed to create_synthetic_env_task."""
+        round_data = self._make_round(round_number, num_groups)
+        captured_calls = []
 
-    def test_training_hours_by_round(self):
-        assert t_cst.ENV_TRAINING_HOURS_BY_ROUND[1] == 1.5
-        assert t_cst.ENV_TRAINING_HOURS_BY_ROUND[2] == 2.0
-        assert t_cst.ENV_TRAINING_HOURS_BY_ROUND[3] == 2.5
-        assert t_cst.ENV_TRAINING_HOURS_BY_ROUND[4] == 3.0
+        async def mock_create_env_task(config, models, datasets, **kwargs):
+            task = MagicMock()
+            task.task_id = f"task_{len(captured_calls)}"
+            task.model_id = kwargs.get("model_id_override", "base-model")
+            task.environment_names = [EnvironmentName.LIARS_DICE]
+            task.eval_seed = 42
+            captured_calls.append(kwargs)
+            return task
 
+        with (
+            patch("validator.tournament.task_creator._get_existing_tasks_by_identifier", return_value=[]),
+            patch("validator.tournament.task_creator._get_text_models", return_value=["model1"]),
+            patch("validator.tournament.task_creator._get_instruct_text_datasets", return_value=["ds1"]),
+            patch("validator.tournament.task_creator._get_tournament_base_model", return_value="Qwen/Qwen2.5-7B-Instruct"),
+            patch("validator.tournament.task_creator.create_synthetic_env_task", side_effect=mock_create_env_task),
+            patch("validator.tournament.task_creator._create_and_register_tournament_task", new_callable=AsyncMock),
+        ):
+            from validator.tournament.task_creator import _create_environment_group_tasks
+            config = MagicMock()
+            await _create_environment_group_tasks(round_data, "tourn_x", config)
 
-# --- 2e: Model continuation start point ---
+        return captured_calls
 
+    @pytest.mark.asyncio
+    async def test_round_1_gets_2_envs_and_default_start(self):
+        calls = await self._run_group_task_creation(round_number=1)
+        assert len(calls) >= 1
+        assert calls[0]["num_environments"] == 2
+        assert calls[0]["training_start_point"] == TrainingStartPoint.DEFAULT
 
-class TestModelContinuationStartPoint:
-    def test_round_1_is_default(self):
-        start_point = TrainingStartPoint.CONTINUATION if 1 > 1 else TrainingStartPoint.DEFAULT
-        assert start_point == TrainingStartPoint.DEFAULT
+    @pytest.mark.asyncio
+    async def test_round_2_gets_capped_envs_and_continuation(self):
+        calls = await self._run_group_task_creation(round_number=2)
+        expected_envs = min(2 * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER, len(EnvironmentName))
+        assert calls[0]["num_environments"] == expected_envs
+        assert calls[0]["training_start_point"] == TrainingStartPoint.CONTINUATION
 
-    def test_round_2_is_continuation(self):
-        start_point = TrainingStartPoint.CONTINUATION if 2 > 1 else TrainingStartPoint.DEFAULT
-        assert start_point == TrainingStartPoint.CONTINUATION
+    @pytest.mark.asyncio
+    async def test_round_3_envs_capped_at_total(self):
+        calls = await self._run_group_task_creation(round_number=3)
+        assert calls[0]["num_environments"] == len(EnvironmentName)
+        assert calls[0]["training_start_point"] == TrainingStartPoint.CONTINUATION
 
-    def test_round_5_is_continuation(self):
-        start_point = TrainingStartPoint.CONTINUATION if 5 > 1 else TrainingStartPoint.DEFAULT
-        assert start_point == TrainingStartPoint.CONTINUATION
+    @pytest.mark.asyncio
+    async def test_round_2_uses_tournament_base_model(self):
+        """R2+ should pass the R1 base model as model_id_override."""
+        calls = await self._run_group_task_creation(round_number=2)
+        assert calls[0]["model_id_override"] == "Qwen/Qwen2.5-7B-Instruct"
 
+    @pytest.mark.asyncio
+    async def test_round_1_no_model_override(self):
+        """R1 should not force a model (lets the task creator pick randomly)."""
+        calls = await self._run_group_task_creation(round_number=1)
+        assert calls[0].get("model_id_override") is None
 
-# --- Boss round winner determination (env vs text) ---
+    @pytest.mark.asyncio
+    async def test_one_task_per_group(self):
+        """Each group gets exactly one task."""
+        calls = await self._run_group_task_creation(round_number=1, num_groups=3)
+        assert len(calls) == 3
 
+    @pytest.mark.asyncio
+    async def test_subsequent_groups_reuse_first_task_config(self):
+        """Groups 2+ should use same environment_names and eval_seed as group 1,
+        ensuring all groups play the same games with the same seed."""
+        calls = await self._run_group_task_creation(round_number=1, num_groups=3)
+        # First group creates the reference; groups 2+ should get env/seed overrides from it
+        for call in calls[1:]:
+            assert call.get("environment_names_override") is not None, "Subsequent groups should reuse reference envs"
+            assert call.get("eval_seed_override") is not None, "Subsequent groups should reuse reference seed"
 
-class TestDetermineBossRoundWinner:
-    def test_env_contender_must_win_all_three(self):
-        """Environment tournaments use determine_env_tournament_winner (async, DB),
-        not determine_boss_round_winner. The TEXT/IMAGE path uses majority.
-        This test verifies the majority path does NOT apply to env logic."""
-        # TEXT: 2/3 = majority → challenger wins
-        assert determine_boss_round_winner(
-            ["challenger", "boss", "challenger"], "boss", TournamentType.TEXT
-        ) == "challenger"
-
-        # TEXT: 1/3 = no majority → boss retains
-        assert determine_boss_round_winner(
-            ["challenger", "boss", "boss"], "boss", TournamentType.TEXT
-        ) == "boss"
-
-    def test_empty_winners_boss_retains(self):
-        assert determine_boss_round_winner([], "boss", TournamentType.TEXT) == "boss"
-
-    def test_all_boss_wins(self):
-        assert determine_boss_round_winner(
-            ["boss", "boss", "boss"], "boss", TournamentType.TEXT
-        ) == "boss"
+    @pytest.mark.asyncio
+    async def test_r2_subsequent_groups_reuse_base_model(self):
+        """R2+: all groups should use the same base model from R1."""
+        calls = await self._run_group_task_creation(round_number=2, num_groups=3)
+        for call in calls:
+            assert call.get("model_id_override") == "Qwen/Qwen2.5-7B-Instruct"

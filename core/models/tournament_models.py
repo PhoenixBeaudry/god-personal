@@ -12,6 +12,12 @@ from pydantic import field_validator
 
 from core.models.payload_models import TrainingRepoResponse
 from core.constants import EnvironmentName
+from core.models.scoring_models import EnvironmentWeight
+from core.models.scoring_models import EvalHotkeyResults
+from core.models.scoring_models import GroupStagePoints
+from core.models.scoring_models import PairwiseOutcome
+from core.models.scoring_models import TournamentScore
+from core.models.scoring_models import TournamentTypeResult
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
 from validator.core.models import AnyTypeRawTask
@@ -243,52 +249,6 @@ class TournamentResultsWithWinners(BaseModel):
     rounds: list[TournamentRoundResult]
     base_winner_hotkey: str | None = None
     winner_hotkey: str | None = None
-
-
-class TournamentScore(BaseModel):
-    hotkey: str
-    score: float
-
-
-class EnvironmentWeight(BaseModel):
-    """Weight for a single environment in tournament scoring."""
-
-    environment: EnvironmentName
-    weight: float = Field(default=1.0, ge=0.0, description="Scoring multiplier for this environment")
-
-
-class PairwiseOutcome(BaseModel):
-    """Universal outcome of a single pair comparison on a single environment.
-
-    Produced by any eval type (PvP, MCTS, etc.) and fed into the universal
-    points accumulator. The winner field is the hotkey of the winner, or
-    None for a draw.
-    """
-
-    hotkey_a: str
-    hotkey_b: str
-    environment: EnvironmentName
-    winner: str | None = Field(description="Hotkey of winner, or None for draw")
-
-
-class GroupStagePoints(BaseModel):
-    """Per-hotkey points from group stage evaluation (any eval type)."""
-
-    hotkey: str
-    points: float
-
-
-class EvalHotkeyResults(BaseModel):
-    """Outcome of evaluating a batch of hotkeys."""
-
-    evaluated: list[str] = Field(description="Hotkeys that were successfully evaluated")
-    failed: list[str] = Field(default_factory=list, description="Hotkeys that failed evaluation")
-
-
-class TournamentTypeResult(BaseModel):
-    scores: list[TournamentScore]
-    prev_winner_hotkey: str | None
-    prev_winner_won_final: bool
 
 
 class TaskPerformanceDifference(BaseModel):

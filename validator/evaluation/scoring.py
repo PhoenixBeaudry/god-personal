@@ -12,7 +12,7 @@ from core.models.payload_models import DiffusionLosses
 from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
 from core.models.pvp_models import PvPGroupModelSpec, PvPGroupResults, PvPPairResult
-from core.models.tournament_models import EvalHotkeyResults
+from core.models.scoring_models import EvalHotkeyResults
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
 from core.models.utility_models import FileFormat

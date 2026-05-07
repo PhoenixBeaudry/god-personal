@@ -4,14 +4,13 @@ import itertools
 import validator.core.constants as cts
 from core.constants import EnvironmentName
 from core.models.pvp_models import PvPGroupResults
-from core.models.tournament_models import EnvironmentWeight
-from core.models.tournament_models import GroupStagePoints
-from core.models.tournament_models import PairwiseOutcome
+from core.models.scoring_models import EnvironmentWeight
+from core.models.scoring_models import GroupStagePoints
+from core.models.scoring_models import PairwiseOutcome
+from core.models.scoring_models import TournamentScore
+from core.models.scoring_models import TournamentTypeResult
 from core.models.tournament_models import TournamentResultsWithWinners
-from core.models.tournament_models import TournamentScore
 from core.models.tournament_models import TournamentType
-from core.models.tournament_models import TournamentTypeResult
-from validator.tournament.utils import get_real_winner_hotkey
 from validator.utils.logging import get_logger
 
 
@@ -147,8 +146,13 @@ def calculate_tournament_type_scores_from_data(
     score_dict = {}
     prev_winner_won_final = False
 
-    # Get real winner hotkey (handles EMISSION_BURN_HOTKEY placeholder for defending champions)
-    actual_winner_hotkey = get_real_winner_hotkey(tournament_data.winner_hotkey, tournament_data.base_winner_hotkey)
+    # Resolve EMISSION_BURN_HOTKEY placeholder to the real defending champion hotkey
+    winner_hk = tournament_data.winner_hotkey
+    base_hk = tournament_data.base_winner_hotkey
+    if winner_hk == cts.EMISSION_BURN_HOTKEY and base_hk:
+        actual_winner_hotkey = base_hk
+    else:
+        actual_winner_hotkey = winner_hk
     if tournament_data.winner_hotkey == cts.EMISSION_BURN_HOTKEY and tournament_data.base_winner_hotkey:
         logger.info(f"Swapped EMISSION_BURN_HOTKEY with actual defending champion: {actual_winner_hotkey}")
 

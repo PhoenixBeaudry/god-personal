@@ -51,6 +51,7 @@ class TestEnvRankingDirection:
         return MinerResultsText(
             hotkey=hotkey,
             test_loss=test_loss,
+            synth_loss=0.0,
             is_finetune=True,
             task_type=task_type,
         )

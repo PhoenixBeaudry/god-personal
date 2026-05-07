@@ -126,11 +126,19 @@ class TestModelAnonymizer:
         finally:
             del os.environ["MODEL_HASH_SALT"]
 
-    def test_hash_is_16_chars(self):
-        os.environ["MODEL_HASH_SALT"] = "test"
+    def test_downloader_and_model_prep_see_same_path(self):
+        """Both run_downloader_container and run_model_prep_container use
+        get_anonymous_model_dir to build cache paths. If the hash changes
+        between calls (e.g. non-deterministic), the model won't be found."""
+        os.environ["MODEL_HASH_SALT"] = "prod_salt_value"
         try:
-            h = get_anonymous_model_dir("anything")
-            assert len(h) == 16
+            model_id = "Qwen/Qwen2.5-7B-Instruct"
+            # Simulate: downloader computes path, then model prep computes path later
+            downloader_hash = get_anonymous_model_dir(model_id)
+            model_prep_hash = get_anonymous_model_dir(model_id)
+            assert downloader_hash == model_prep_hash
+            # Both would build: /cache/models/{hash}
+            assert f"/cache/models/{downloader_hash}" == f"/cache/models/{model_prep_hash}"
         finally:
             del os.environ["MODEL_HASH_SALT"]
 

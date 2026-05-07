@@ -14,7 +14,7 @@ from pydantic import model_validator
 
 from core.constants import EnvironmentName
 from core.constants import TrainingStartPoint
-from core.models.tournament_models import EnvironmentWeight
+from core.models.scoring_models import EnvironmentWeight
 from core.constants import YARN_VALID_FACTORS
 from core.models.model_prep_models import AugmentationConfig
 from core.models.utility_models import Backend

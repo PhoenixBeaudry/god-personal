@@ -16,7 +16,7 @@ from core.models.payload_models import ImageModelsResponse
 from core.models.payload_models import InstructTextDatasetColumnsResponse
 from core.constants import EnvironmentName
 from core.constants import TrainingStartPoint
-from core.models.tournament_models import EnvironmentWeight
+from core.models.scoring_models import EnvironmentWeight
 from core.models.utility_models import FileFormat
 from core.models.utility_models import Message
 from core.models.utility_models import Prompts
