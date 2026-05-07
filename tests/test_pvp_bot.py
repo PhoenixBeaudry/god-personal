@@ -55,7 +55,7 @@ class TestStripThinkTags:
 
 try:
     import pyspiel
-    from validator.evaluation.pvp.bot import LLMBot, _parse_action
+    from validator.evaluation.pvp.bot import LLMBot, TurnTimeoutError, _parse_action
     HAS_PYSPIEL = True
 except ImportError:
     HAS_PYSPIEL = False
@@ -197,3 +197,83 @@ class TestBotStep:
         for i in range(1, len(roles) - 1, 2):
             assert roles[i] == ChatRole.USER
             assert roles[i + 1] == ChatRole.ASSISTANT
+
+
+# --- Turn timeout integration test ---
+
+
+@needs_pyspiel
+class TestTurnTimeoutForfeit:
+    """Integration tests: play real games via evaluate_bots with per-turn timeouts.
+
+    Uses a 7s turn timeout. A 5s sleep completes within the limit (no forfeit),
+    while a 10s sleep exceeds it (forfeit).
+    """
+
+    @staticmethod
+    def _make_bots(game, agent, slow_sleep: float):
+        """Build bot pair: player 0 is fast, player 1 sleeps on 2nd call."""
+        import time
+
+        def fast_chat_fn(config, messages):
+            return ChatResult(content="0")
+
+        call_count = 0
+
+        def slow_on_second_chat_fn(config, messages):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                time.sleep(slow_sleep)
+            return ChatResult(content="0")
+
+        bot_0 = LLMBot(
+            game=game, player_id=0, chat_fn=fast_chat_fn,
+            config=_make_config(), agent=agent, rng_seed=42,
+        )
+        bot_1 = LLMBot(
+            game=game, player_id=1, chat_fn=slow_on_second_chat_fn,
+            config=_make_config(), agent=agent, rng_seed=43,
+        )
+        return bot_0, bot_1
+
+    def test_5s_sleep_completes_within_10s_timeout(self) -> None:
+        """Player 1 sleeps 5s on 2nd call. With a 10s timeout the game
+        completes normally — no forfeit."""
+        from unittest.mock import patch
+
+        from validator.evaluation.pvp.agents import LeducPokerAgent
+        from validator.evaluation.pvp.game_runner import _evaluate_with_timeout
+
+        agent = LeducPokerAgent()
+        game = pyspiel.load_game("leduc_poker", {"players": 2})
+        bot_0, bot_1 = self._make_bots(game, agent, slow_sleep=5)
+        state = game.new_initial_state()
+
+        with patch("validator.core.constants.PVP_TURN_TIMEOUT_SECONDS", 10):
+            returns = _evaluate_with_timeout(state, [bot_0, bot_1], seed=42)
+
+        # Game completed normally — returns should NOT be forfeit values.
+        # Both can't be at the extremes simultaneously in a real game.
+        assert not (returns[0] == game.max_utility() and returns[1] == game.min_utility()), (
+            f"Expected normal game completion, got forfeit returns: {returns}"
+        )
+
+    def test_10s_sleep_exceeds_10s_timeout_and_forfeits(self) -> None:
+        """Player 1 sleeps 10s on 2nd call. With a 10s timeout the alarm
+        fires first and the game is forfeited to player 0."""
+        from unittest.mock import patch
+
+        from validator.evaluation.pvp.agents import LeducPokerAgent
+        from validator.evaluation.pvp.game_runner import _evaluate_with_timeout
+
+        agent = LeducPokerAgent()
+        game = pyspiel.load_game("leduc_poker", {"players": 2})
+        bot_0, bot_1 = self._make_bots(game, agent, slow_sleep=15)
+        state = game.new_initial_state()
+
+        with patch("validator.core.constants.PVP_TURN_TIMEOUT_SECONDS", 10):
+            returns = _evaluate_with_timeout(state, [bot_0, bot_1], seed=42)
+
+        assert returns[0] == game.max_utility()
+        assert returns[1] == game.min_utility()

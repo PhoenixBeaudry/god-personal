@@ -2,12 +2,13 @@
 
 Drives OpenSpiel's evaluate_bots with two LLMBots, one per model.
 Each seed is played twice with swapped positions for fairness.
+Per-turn timeouts in LLMBot.step() ensure a slow/broken model
+forfeits rather than dragging the opponent into a draw.
 """
 
 import functools
 import logging
 import random
-import signal
 from typing import NamedTuple
 
 import numpy as np
@@ -32,11 +33,21 @@ from validator.evaluation.pvp.agents import (
     LeducPokerAgent,
     LiarsDiceAgent,
 )
-from validator.evaluation.pvp.bot import LLMBot
+from validator.evaluation.pvp.bot import LLMBot, TurnTimeoutError
 from validator.evaluation.pvp.chat import chat_completion, create_client
 from validator.evaluation.pvp.scoring import determine_outcome
 
 logger = logging.getLogger(__name__)
+
+
+def _forfeit_returns(state: pyspiel.State, forfeiting_player: int) -> list[float]:
+    """Build returns where the forfeiting player gets min utility, opponent gets max."""
+    game = state.get_game()
+    min_util = game.min_utility()
+    max_util = game.max_utility()
+    returns = [max_util] * state.num_players()
+    returns[forfeiting_player] = min_util
+    return returns
 
 
 class Player(NamedTuple):
@@ -194,26 +205,21 @@ def _evaluate_with_timeout(
     bots: list[LLMBot | None],
     seed: int,
 ) -> list[float]:
-    """Run evaluate_bots with a timeout to prevent hangs.
+    """Run evaluate_bots, catching per-turn timeouts as forfeits.
 
-    Uses SIGALRM — must be called from the main thread.
+    Per-turn timeouts are enforced inside LLMBot.step() via SIGALRM.
+    If a bot exceeds its turn limit, TurnTimeoutError propagates up
+    through evaluate_bots and is caught here as a forfeit.
     """
-
-    def _timeout_handler(signum: int, frame: object) -> None:
-        raise TimeoutError(f"Game exceeded {vcst.PVP_GAME_TIMEOUT_SECONDS}s timeout")
-
-    prev_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(vcst.PVP_GAME_TIMEOUT_SECONDS)
     try:
         returns = evaluate_bots.evaluate_bots(state, bots, np.random.RandomState(seed))
         return list(returns)
-    except TimeoutError:
-        logger.warning("Game timed out after %ds, scoring as draw", vcst.PVP_GAME_TIMEOUT_SECONDS)
-        num_players = state.num_players()
-        return [0.0] * num_players
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, prev_handler)
+    except TurnTimeoutError as exc:
+        logger.warning(
+            "Player %d timed out on turn — opponent wins by forfeit",
+            exc.player_id,
+        )
+        return _forfeit_returns(state, exc.player_id)
 
 
 def _tally(result: PvPEnvironmentResult, outcome: GameOutcome) -> None:

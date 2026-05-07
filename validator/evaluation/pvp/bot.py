@@ -7,6 +7,7 @@ Accepts a ChatFn protocol for testability.
 
 import logging
 import re
+import signal
 
 import numpy as np
 import pyspiel
@@ -16,6 +17,14 @@ from validator.core import constants as vcst
 from validator.evaluation.pvp.agents import BaseGameAgent
 
 logger = logging.getLogger(__name__)
+
+
+class TurnTimeoutError(Exception):
+    """Raised when a bot's step() exceeds the per-turn time limit."""
+
+    def __init__(self, player_id: int):
+        self.player_id = player_id
+        super().__init__(f"Player {player_id} exceeded {vcst.PVP_TURN_TIMEOUT_SECONDS}s turn timeout")
 
 
 class LLMBot(pyspiel.Bot):
@@ -55,8 +64,27 @@ class LLMBot(pyspiel.Bot):
     def step(self, state: pyspiel.State) -> int:
         """Choose an action by querying the LLM.
 
-        Called by evaluate_bots during game play.
+        Called by evaluate_bots during game play. Enforces a per-turn
+        timeout — if the turn (including all retries) exceeds the limit,
+        TurnTimeoutError propagates up to forfeit the game.
         """
+
+        def _turn_timeout_handler(signum: int, frame: object) -> None:
+            raise TurnTimeoutError(self._player_id)
+
+        prev_handler = signal.signal(signal.SIGALRM, _turn_timeout_handler)
+        signal.alarm(vcst.PVP_TURN_TIMEOUT_SECONDS)
+
+        try:
+            return self._step_inner(state)
+        except TurnTimeoutError:
+            raise
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, prev_handler)
+
+    def _step_inner(self, state: pyspiel.State) -> int:
+        """Core step logic: prompt the LLM, parse, retry, fallback."""
         if not self._system_prompt_set:
             system_prompt = self._agent.generate_system_prompt()
             self._conversation.append(ChatMessage(role=ChatRole.SYSTEM, content=system_prompt))
