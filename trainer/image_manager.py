@@ -12,6 +12,7 @@ from docker.models.containers import Container
 import core.constants as core_cst
 import trainer.utils.training_paths as train_paths
 from core.constants import EnvironmentName
+from core.models.model_prep_models import BaselineStats
 from core.models.payload_models import EnvConfig
 from core.models.payload_models import ModelPrepResponse
 from core.models.payload_models import TrainerProxyRequest
@@ -156,6 +157,7 @@ async def run_trainer_container_image(
     hours_to_complete: float,
     hotkey: str,
     trigger_word: str | None = None,
+    baseline_stats: BaselineStats | None = None,
     log_labels: dict[str, str] | None = None,
     gpu_ids: list[int] = [0],
 ) -> Container:
@@ -180,6 +182,10 @@ async def run_trainer_container_image(
 
     if trigger_word:
         command += ["--trigger-word", trigger_word]
+
+    environment: dict[str, str] = {"TRANSFORMERS_CACHE": cst.HUGGINGFACE_CACHE_PATH}
+    if baseline_stats:
+        environment["BASELINE_STATS"] = json.dumps(baseline_stats.model_dump())
 
     container_name = f"image-trainer-{uuid.uuid4().hex}"
 
@@ -212,7 +218,7 @@ async def run_trainer_container_image(
                 security_opt=["no-new-privileges"],
                 cap_drop=["ALL"],
                 network=cst.INTERNAL_BRIDGE_NAME,
-                environment={"TRANSFORMERS_CACHE": cst.HUGGINGFACE_CACHE_PATH},
+                environment=environment,
                 detach=True,
             )
 
@@ -242,6 +248,7 @@ async def run_trainer_container_text(
     file_format: FileFormat,
     expected_repo_name: str,
     hours_to_complete: float,
+    baseline_stats: BaselineStats | None = None,
     log_labels: dict[str, str] | None = None,
     gpu_ids: list[int] = [0],
     env_server_urls: str | None = None,
@@ -252,6 +259,8 @@ async def run_trainer_container_text(
     await asyncio.to_thread(ensure_internal_network)
 
     environment = build_wandb_env(task_id, hotkey)
+    if baseline_stats:
+        environment["BASELINE_STATS"] = json.dumps(baseline_stats.model_dump())
     if env_server_urls:
         environment["ENVIRONMENT_SERVER_URLS"] = env_server_urls
     if miner_datasets:
@@ -854,6 +863,7 @@ async def start_training_task(task: TrainerProxyRequest, local_repo_path: str):
                     hours_to_complete=training_data.hours_to_complete,
                     hotkey=task.hotkey,
                     trigger_word=training_data.trigger_word if training_data.trigger_word else None,
+                    baseline_stats=training_data.baseline_stats,
                     log_labels=log_labels,
                     gpu_ids=task.gpu_ids,
                 ),
@@ -872,6 +882,7 @@ async def start_training_task(task: TrainerProxyRequest, local_repo_path: str):
                     file_format=training_data.file_format,
                     expected_repo_name=training_data.expected_repo_name,
                     hours_to_complete=training_data.hours_to_complete,
+                    baseline_stats=training_data.baseline_stats,
                     log_labels=log_labels,
                     gpu_ids=task.gpu_ids,
                     env_server_urls=env_server_url_str,
