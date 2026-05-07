@@ -36,6 +36,7 @@ core/config/*.toml
 core/dataset/images/*
 !core/dataset/images/.gitkeep
 secure_checkpoints/
+output/
 outputs/
 .env.trainer-logs
 
