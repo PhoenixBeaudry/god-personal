@@ -11,11 +11,9 @@ OpenAI-compatible client.
 
 import json
 import os
-import random
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
 
 import docker
@@ -230,17 +228,59 @@ def print_summary(summary):
     print("=" * 72)
 
 
-def run_evaluation(base_seed):
+def _load_state(state_path):
+    if state_path.exists():
+        try:
+            data = json.loads(state_path.read_text())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+    return {"tested_task_ids": [], "per_task": []}
+
+
+def _save_state(state_path, state):
+    tmp = state_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, default=str, indent=2))
+    tmp.replace(state_path)
+
+
+def run_evaluation():
     api_key = os.getenv(MODEL_API_KEY_ENV)
     if not api_key:
         raise RuntimeError(f"Set ${MODEL_API_KEY_ENV} before running.")
 
-    output_dir = OUTPUT_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = OUTPUT_ROOT
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"📁 Writing per-task data to {output_dir}")
+    tasks_dir = output_dir / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    state_path = output_dir / "state.json"
+    state = _load_state(state_path)
+    per_task = list(state.get("per_task", []))
+    tested_set = set(state.get("tested_task_ids", []))
+    print(f"📁 Output dir: {output_dir}")
+    print(f"📦 Loaded state: {len(tested_set)} task(s) already tested")
+
+    next_id = (max(tested_set) + 1) if tested_set else TASK_ID_MIN
+    eval_list = []
+    tid = next_id
+    while len(eval_list) < NUM_EVALS and tid <= TASK_ID_MAX:
+        if tid not in tested_set:
+            eval_list.append(tid)
+        tid += 1
+    if not eval_list:
+        print(
+            f"✅ All tasks in [{TASK_ID_MIN}, {TASK_ID_MAX}] have been tested. "
+            "Nothing to do this run."
+        )
+        return per_task
+    print(
+        f"▶️  Resuming from task ID {eval_list[0]} — "
+        f"testing {len(eval_list)} task(s): "
+        f"{eval_list[0]}..{eval_list[-1]}"
+    )
 
     containers = {}
-    per_task = []
 
     try:
         if not client.networks.list(names=[NETWORK_NAME]):
@@ -286,9 +326,6 @@ def run_evaluation(base_seed):
                 raise RuntimeError(f"Env server on port {port} did not come up")
         print("✅ Env servers ready.\n")
 
-        random.seed(base_seed)
-        eval_list = random.sample(range(TASK_ID_MIN, TASK_ID_MAX), NUM_EVALS)
-
         def evaluate_task(task_id, host_port):
             payload = {
                 "task_id": task_id,
@@ -317,7 +354,7 @@ def run_evaluation(base_seed):
 
         total_concurrency = NUM_ENV_SERVERS * ENV_EVAL_MAX_CONCURRENT_REQUESTS
         print(
-            f"Running {NUM_EVALS} evals across {NUM_ENV_SERVERS} server(s) "
+            f"Running {len(eval_list)} evals across {NUM_ENV_SERVERS} server(s) "
             f"× {ENV_EVAL_MAX_CONCURRENT_REQUESTS} req each (concurrency={total_concurrency})..."
         )
 
@@ -356,19 +393,24 @@ def run_evaluation(base_seed):
                     **conv,
                 }
                 per_task.append(row)
+                tested_set.add(task_id)
 
                 # Persist the full env-server payload for offline analysis.
-                (output_dir / f"task_{task_id}.json").write_text(
+                (tasks_dir / f"task_{task_id}.json").write_text(
                     json.dumps(data, default=str, indent=2)
                 )
+                _save_state(state_path, {
+                    "tested_task_ids": sorted(tested_set),
+                    "per_task": per_task,
+                })
 
                 result_label = "Success" if success else "Failure"
                 print(f"Task ID: {task_id} completed, Result: {result_label}")
                 if error:
-                    print(f"[{completed}/{NUM_EVALS}] task {task_id}: FAILED ({error})")
+                    print(f"[{completed}/{len(eval_list)}] task {task_id}: FAILED ({error})")
                 else:
                     print(
-                        f"[{completed}/{NUM_EVALS}] task {task_id}: "
+                        f"[{completed}/{len(eval_list)}] task {task_id}: "
                         f"score={score} success={success} "
                         f"tokens={usage.get('total_tokens')} "
                         f"calls={usage.get('num_model_calls')} "
@@ -416,8 +458,8 @@ def run_evaluation(base_seed):
             "eval_timeout": EVAL_TIMEOUT,
             "task_id_min": TASK_ID_MIN,
             "task_id_max": TASK_ID_MAX,
-            "base_seed": base_seed,
-            "task_ids": eval_list,
+            "tasks_this_run": eval_list,
+            "total_tested": len(tested_set),
         }, default=str, indent=2))
 
         print("\n" + "=" * 72)
@@ -450,8 +492,7 @@ def run_evaluation(base_seed):
 
 
 if __name__ == "__main__":
-    seed = random.randint(0, 100000)
-    print(f"Running Chutes SWE token-stats eval with seed={seed}")
+    print("Running Chutes SWE token-stats eval (sequential, resumable)")
     start = time.perf_counter()
-    run_evaluation(base_seed=seed)
+    run_evaluation()
     print(f"Took {time.perf_counter() - start:.1f}s")
