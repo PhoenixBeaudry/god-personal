@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -66,11 +67,15 @@ CACHE_DIR = Path.home() / ".cache" / "intercode_eval"
 REPO_CACHE = CACHE_DIR / "intercode"
 DATA_CACHE = CACHE_DIR / "data"
 
-# fs_4 reuses fs_1's image (data is filesystem-agnostic).
-IMAGE_NAME_FOR_FS = {1: "intercode-nl2bash-fs1",
-                     2: "intercode-nl2bash-fs2",
-                     3: "intercode-nl2bash-fs3",
-                     4: "intercode-nl2bash-fs1"}
+# BashEnv hard-codes `intercode-nl2bash` in its IMAGE_TO_SETTINGS lookup, so
+# whatever fs-specific image we build must be tagged with that exact name
+# before we hand it to BashEnv. We keep per-fs tags around for caching and
+# re-tag the active one as `intercode-nl2bash` per run.
+CANONICAL_IMAGE = "intercode-nl2bash"
+CACHE_TAG_FOR_FS = {1: "intercode-nl2bash-fs1",
+                    2: "intercode-nl2bash-fs2",
+                    3: "intercode-nl2bash-fs3",
+                    4: "intercode-nl2bash-fs1"}  # fs_4 is filesystem-agnostic
 
 # Filesystem version baked into the docker image -- fs_4 uses fs_1's image,
 # so we build fs_version=1 for it (the dataset's commands don't depend on the
@@ -278,34 +283,39 @@ def image_exists(image: str) -> bool:
 
 
 def ensure_image(fs_version: int) -> str:
-    """Build (if missing) and return docker image name for this fs."""
-    image = IMAGE_NAME_FOR_FS[fs_version]
-    if image_exists(image):
-        return image
-    repo = ensure_intercode_repo()
-    src_dockerfile = repo / "docker" / "nl2bash.Dockerfile"
-    if not src_dockerfile.exists():
-        raise SystemExit(f"missing Dockerfile at {src_dockerfile}")
+    """Build (if missing) the per-fs image and tag it as the canonical
+    `intercode-nl2bash` name that BashEnv expects. Returns CANONICAL_IMAGE."""
+    cache_tag = CACHE_TAG_FOR_FS[fs_version]
+    if not image_exists(cache_tag):
+        repo = ensure_intercode_repo()
+        src_dockerfile = repo / "docker" / "nl2bash.Dockerfile"
+        if not src_dockerfile.exists():
+            raise SystemExit(f"missing Dockerfile at {src_dockerfile}")
 
-    build_fs = BUILD_FS_VERSION[fs_version]
-    patched = src_dockerfile.read_text().replace(
-        "ENV file_system_version=1",
-        f"ENV file_system_version={build_fs}",
-    )
-    # Write patched Dockerfile alongside the original (same dir, so the
-    # `COPY ../docker/bash_scripts/$script /` relative path resolves the
-    # same way as upstream).
-    patched_path = src_dockerfile.with_name(f"nl2bash.fs{build_fs}.Dockerfile")
-    patched_path.write_text(patched)
+        build_fs = BUILD_FS_VERSION[fs_version]
+        patched = src_dockerfile.read_text().replace(
+            "ENV file_system_version=1",
+            f"ENV file_system_version={build_fs}",
+        )
+        # Write patched Dockerfile alongside the original so the
+        # `COPY ../docker/bash_scripts/$script /` relative path resolves the
+        # same way as upstream.
+        patched_path = src_dockerfile.with_name(f"nl2bash.fs{build_fs}.Dockerfile")
+        patched_path.write_text(patched)
 
-    print(f"🐳 Building docker image {image} (fs_version={build_fs})…")
-    _run([
-        "docker", "build",
-        "-t", image,
-        "-f", str(patched_path),
-        str(repo),
-    ])
-    return image
+        print(f"🐳 Building docker image {cache_tag} (fs_version={build_fs})…")
+        _run([
+            "docker", "build",
+            "-t", cache_tag,
+            "-f", str(patched_path),
+            str(repo),
+        ])
+
+    # BashEnv only recognises the canonical name. Re-tag the cached per-fs
+    # image as `intercode-nl2bash` for this run.
+    print(f"🏷️  Tagging {cache_tag} as {CANONICAL_IMAGE}")
+    _run(["docker", "tag", cache_tag, CANONICAL_IMAGE])
+    return CANONICAL_IMAGE
 
 
 ##############################################################################
@@ -434,9 +444,21 @@ def run_react_episode(env, query: str, client, max_turns: int, max_tokens_per_ca
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run a single Intercode-Bash NL2Bash task via the Chutes API.",
+        description="Run one or more Intercode-Bash NL2Bash tasks via the Chutes API.",
     )
-    p.add_argument("task_id", type=int, help="Global 1-indexed task id (1..200).")
+    p.add_argument(
+        "task_id", type=int, nargs="?",
+        help="Global 1-indexed task id (1..200). Omit when using --num-episodes.",
+    )
+    p.add_argument(
+        "--num-episodes", type=int, default=None,
+        help="Sample this many random task ids (without replacement) and "
+             "evaluate them sequentially. Overrides positional task_id.",
+    )
+    p.add_argument(
+        "--seed", type=int, default=None,
+        help="Optional RNG seed for --num-episodes sampling (for reproducibility).",
+    )
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     p.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS)
@@ -445,45 +467,24 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--output", type=Path, default=None,
-        help="Optional path to dump the full result (row + turn history) as JSON.",
+        help="Optional path to dump per-task results + summary as JSON.",
     )
-    return p.parse_args()
+    args = p.parse_args()
+    if args.task_id is None and args.num_episodes is None:
+        p.error("provide a task_id or --num-episodes N")
+    return args
 
 
-def main() -> int:
-    args = parse_args()
-
-    api_key = os.getenv(CHUTES_API_KEY_ENV)
-    if not api_key:
-        print(f"error: set ${CHUTES_API_KEY_ENV} before running", file=sys.stderr)
-        return 2
-
-    # Imported here so --help works without these installed.
+def run_task(task_id: int, args, client, data_paths, ranges) -> dict:
+    """Run a single global task_id and return its result dict (incl. turn history)."""
     from intercode.envs import BashEnv  # type: ignore
-    from openai import OpenAI  # type: ignore
 
-    data_paths = fetch_all_datasets()
-    ranges = compute_fs_ranges(data_paths)
-    total = ranges[-1][2]
-    if not (1 <= args.task_id <= total):
-        print(
-            f"error: task_id {args.task_id} out of range (valid 1..{total})",
-            file=sys.stderr,
-        )
-        return 2
-
-    fs_version, local_id = map_task_id(args.task_id, ranges)
+    fs_version, local_id = map_task_id(task_id, ranges)
     data_path = data_paths[fs_version]
     image = ensure_image(fs_version)
 
-    client = OpenAI(api_key=api_key, base_url=CHUTES_BASE_URL)
-    # Stash per-call options on the client so _chutes_chat doesn't need them
-    # threaded through every call.
-    client._intercode_model = args.model
-    client._intercode_temperature = args.temperature
-
     print("=" * 72)
-    print(f"task_id (global)   : {args.task_id}")
+    print(f"task_id (global)   : {task_id}")
     print(f"filesystem variant : fs_{fs_version}  (local task index {local_id})")
     print(f"docker image       : {image}")
     print(f"data file          : {data_path}")
@@ -519,7 +520,7 @@ def main() -> int:
     success = reward >= 1.0
 
     result = {
-        "task_id": args.task_id,
+        "task_id": task_id,
         "fs_version": fs_version,
         "local_task_id": local_id,
         "image": image,
@@ -548,12 +549,105 @@ def main() -> int:
         print(f"  error: {error}")
     print("=" * 72)
 
+    return result
+
+
+def main() -> int:
+    args = parse_args()
+
+    api_key = os.getenv(CHUTES_API_KEY_ENV)
+    if not api_key:
+        print(f"error: set ${CHUTES_API_KEY_ENV} before running", file=sys.stderr)
+        return 2
+
+    from openai import OpenAI  # type: ignore
+
+    data_paths = fetch_all_datasets()
+    ranges = compute_fs_ranges(data_paths)
+    total = ranges[-1][2]
+
+    # Decide which task ids to run.
+    if args.num_episodes is not None:
+        if args.num_episodes < 1:
+            print("error: --num-episodes must be >= 1", file=sys.stderr)
+            return 2
+        if args.num_episodes > total:
+            print(
+                f"error: --num-episodes {args.num_episodes} exceeds total tasks {total}",
+                file=sys.stderr,
+            )
+            return 2
+        rng = random.Random(args.seed)
+        task_ids = rng.sample(range(1, total + 1), args.num_episodes)
+        print(f"🎲 Sampled {args.num_episodes} task ids (seed={args.seed}): {task_ids}")
+    else:
+        if not (1 <= args.task_id <= total):
+            print(
+                f"error: task_id {args.task_id} out of range (valid 1..{total})",
+                file=sys.stderr,
+            )
+            return 2
+        task_ids = [args.task_id]
+
+    client = OpenAI(api_key=api_key, base_url=CHUTES_BASE_URL)
+    # Stash per-call options on the client so _chutes_chat doesn't need them
+    # threaded through every call.
+    client._intercode_model = args.model
+    client._intercode_temperature = args.temperature
+
+    results: list[dict] = []
+    for i, tid in enumerate(task_ids, 1):
+        print(f"\n────── Episode {i}/{len(task_ids)}  (task_id={tid}) ──────")
+        results.append(run_task(tid, args, client, data_paths, ranges))
+
+    # Aggregate.
+    rewards = [r["reward"] for r in results]
+    successes = sum(1 for r in results if r["success"])
+    avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
+    pass_rate = successes / len(results) if results else 0.0
+    total_tokens = sum(r.get("total_tokens") or 0 for r in results)
+    total_time = sum(r.get("time_taken") or 0.0 for r in results)
+
+    summary = {
+        "num_episodes": len(results),
+        "avg_reward": avg_reward,
+        "pass_rate": pass_rate,
+        "num_passed": successes,
+        "total_tokens": total_tokens,
+        "total_time": total_time,
+        "model": args.model,
+        "seed": args.seed,
+        "task_ids": task_ids,
+    }
+
+    print("\n" + "=" * 72)
+    print("Evaluation summary")
+    print("=" * 72)
+    print(f"  episodes        : {summary['num_episodes']}")
+    print(f"  pass rate       : {pass_rate:.2%}  ({successes}/{len(results)})")
+    print(f"  average reward  : {avg_reward:.4f}")
+    print(f"  total tokens    : {total_tokens}")
+    print(f"  total time      : {total_time:.1f}s")
+    for r in results:
+        mark = "✅" if r["success"] else "❌"
+        print(
+            f"   {mark} task {r['task_id']:>3} fs_{r['fs_version']}  "
+            f"reward={r['reward']:.2f}  turns={r['num_turns']}  "
+            f"tokens={r['total_tokens']}"
+        )
+    print("=" * 72)
+
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(result, default=str, indent=2))
+        args.output.write_text(json.dumps(
+            {"summary": summary, "results": results},
+            default=str, indent=2,
+        ))
         print(f"📁 Wrote {args.output}")
 
-    return 0 if success else 1
+    if len(results) == 1:
+        return 0 if results[0]["success"] else 1
+    return 0
 
 
 if __name__ == "__main__":
