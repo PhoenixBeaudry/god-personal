@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""OpenEnv-compatible FastAPI wrapper around Intercode-Bash NL2Bash.
-
-Speaks the OpenEnv HTTP contract
-(https://github.com/meta-pytorch/OpenEnv `src/openenv/core/env_server/http_server.py`):
+"""FastAPI wrapper around Intercode-Bash.
 
     POST /reset    body: ResetRequest    -> ResetResponse
     POST /step     body: StepRequest     -> StepResponse
