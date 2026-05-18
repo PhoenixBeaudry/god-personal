@@ -163,6 +163,11 @@ def _configure_logging() -> None:
             pass
     root.addHandler(handler)
     logger.setLevel(level)
+    # Silence the per-request "HTTP Request: POST .../v1/chat/completions" lines
+    # emitted by the openai client's underlying httpx transport. At ReAct loop
+    # rates these are pure noise — keep WARNING+ so real connection errors still surface.
+    for noisy in ("httpx", "httpcore", "openai", "openai._base_client"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _parse_environment_name() -> str:
@@ -197,13 +202,20 @@ def _build_sglang_command(model_path: str, seed: int) -> str:
     return f"{base} {extra}" if extra else base
 
 
-def _start_process(command: str, name: str) -> subprocess.Popen:
+# SGLang is chatty (per-batch progress lines) and floods Basilica logs. Default
+# off; flip INTERCODE_LOG_SGLANG=1 to re-enable when debugging the inference server.
+LOG_SGLANG_STDOUT = os.getenv("INTERCODE_LOG_SGLANG", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _start_process(command: str, name: str, *, capture_stdout: bool = True) -> subprocess.Popen:
     logger.info("Starting %s: %s", name, command)
+    stdout = subprocess.PIPE if capture_stdout else subprocess.DEVNULL
+    stderr = subprocess.STDOUT if capture_stdout else subprocess.DEVNULL
     return subprocess.Popen(
         command,
         shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stdout=stdout,
+        stderr=stderr,
         text=True,
         bufsize=1,
         preexec_fn=os.setsid,
@@ -870,8 +882,9 @@ async def _run() -> None:
             os.environ["SGLANG_FLASHINFER_WORKSPACE_SIZE"] = str(_min_ws)
 
         logger.info("eval_setup SGLang command: %s", sglang_command)
-        sglang_proc = _start_process(sglang_command, "sglang")
-        sglang_log_task = asyncio.create_task(_stream_logs(sglang_proc, "sglang"))
+        sglang_proc = _start_process(sglang_command, "sglang", capture_stdout=LOG_SGLANG_STDOUT)
+        if LOG_SGLANG_STDOUT:
+            sglang_log_task = asyncio.create_task(_stream_logs(sglang_proc, "sglang"))
 
         sglang_base_url = os.getenv("SGLANG_BASE_URL", "http://127.0.0.1:30000")
         await _wait_for_health(
