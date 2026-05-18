@@ -348,7 +348,7 @@ ACTION_TIMEOUT_SECONDS = 30
 #                  gold_obs exactly after whitespace normalization); else 0.0.
 # Override at deploy time without rebuilding the image via the
 # INTERCODE_SCORING_MODE env var.
-SCORING_MODE = os.getenv("INTERCODE_SCORING_MODE", "continuous").strip().lower()
+SCORING_MODE = os.getenv("INTERCODE_SCORING_MODE", "binary").strip().lower()
 assert SCORING_MODE in {"continuous", "binary"}, f"invalid INTERCODE_SCORING_MODE={SCORING_MODE!r}"
 
 
