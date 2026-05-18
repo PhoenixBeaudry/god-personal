@@ -2,15 +2,14 @@ import asyncio
 import io
 import json
 import logging
-import os
-import re
+import random
 import tarfile
+import time
 import uuid
 from uuid import UUID
-import requests
-import time
-import random
+
 import basilica
+import requests
 
 from core import constants as cst
 from core.models.payload_models import DockerEvaluationResults
@@ -18,24 +17,21 @@ from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
+from core.models.utility_models import EnvironmentDatasetType
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType
-from core.models.utility_models import EnvironmentDatasetType
 from core.models.utility_models import ImageModelType
 from core.models.utility_models import InstructTextDatasetType
 from validator.core import constants as vcst
 from validator.db.database import PSQLDB
-from validator.utils.logging import get_logger
-from validator.utils.logging import get_environment_logger
 from validator.evaluation.db_utils import load_eval_pair_state_for_models
 from validator.evaluation.db_utils import persist_deployment_ids_for_repo
-from validator.evaluation.utils import (
-    EVAL_RESULT_STATUS_PATH,
-    cleanup_basilica_deployments_by_name,
-    deployment_is_healthy,
-    create_basilica_eval_runner_source,
-    log_basilica_logs_block,
-)
+from validator.evaluation.utils import EVAL_RESULT_STATUS_PATH
+from validator.evaluation.utils import cleanup_basilica_deployments_by_name
+from validator.evaluation.utils import create_basilica_eval_runner_source
+from validator.evaluation.utils import deployment_is_healthy
+from validator.evaluation.utils import log_basilica_logs_block
+from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)
@@ -295,13 +291,7 @@ async def _run_single_basilica_eval_repo(
 ) -> dict | str:
     """Run one repo eval with retries. Supports resume via existing_deployment_name."""
     eval_id = str(uuid.uuid4())
-    eval_logger = get_environment_logger(
-        name=f"basilica-{repo.split('/')[-1]}-{eval_id[:8]}",
-        repo_id=repo,
-        eval_id=eval_id,
-        model=model_name,
-        task_type=task_type,
-    )
+    eval_logger = get_logger(f"{__name__}.basilica.{repo.split('/')[-1]}.{eval_id[:8]}")
 
     async def _db_call_with_retry(coro_factory, op_name: str):
         last_exc = None
@@ -468,7 +458,9 @@ async def _run_basilica_eval_repos(
                 task_id=task_id,
                 psql_db=psql_db,
                 repo_to_hotkey=repo_to_hotkey,
-                existing_deployment_name=deployment_ids_by_repo.get(repo) if isinstance(deployment_ids_by_repo.get(repo), str) else None,
+                existing_deployment_name=(
+                    deployment_ids_by_repo.get(repo) if isinstance(deployment_ids_by_repo.get(repo), str) else None
+                ),
             )
             for repo in repos
         ],
