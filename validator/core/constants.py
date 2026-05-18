@@ -374,7 +374,7 @@ ENVIRONMENTS = {
         # Tasks run sequentially in eval_intercode.py because the managed
         # paths (/testbed, /system, /workspace, /backup) are global per-deployment.
         "task_id_range": (1, 200),
-        "num_seeds": 20,
+        "num_seeds": 25,
         # Filesystem layouts are baked into ENV_EVAL_INTERCODE_IMAGE at
         # /intercode_fs/, and there is no env-server — eval_intercode.py
         # runs bash actions in-process.
