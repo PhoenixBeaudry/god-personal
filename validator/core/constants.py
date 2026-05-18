@@ -317,7 +317,7 @@ MODEL_COPY_ENDPOINT = "https://huggingface.co/api/models/{source_repo}/duplicate
 
 # Environment evaluation constants
 ENV_EVAL_IMAGE = "diagonalge/env-eval:latest"
-ENV_EVAL_INTERCODE_IMAGE = "gradientsio/env-eval-intercode:basilica"
+ENV_EVAL_INTERCODE_IMAGE = "phoenixbeaudry/env-eval-intercode:basilica"
 ENV_SERVER_CMD_DEFAULT = "python -m uvicorn _affinetes.server:app --host 0.0.0.0 --port 8001 --workers 1 --loop asyncio"
 BASILICA_GPU_MODELS = ["A100"]
 BASILICA_SGLANG_MIN_GPU_MEMORY_GB = 80
