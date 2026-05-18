@@ -12,6 +12,7 @@ import time
 
 from core.models.utility_models import EnvironmentDatasetType
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_text
+from core.models.utility_models import FileFormat
 
 
 # --- Model Configuration ---
@@ -19,7 +20,7 @@ BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 LORA_MODEL_NAME = None  # e.g. "your-org/your-lora-repo"
 
 # --- Evaluation Configuration ---
-GAME_TO_EVAL = "gin_rummy"
+GAME_TO_EVAL = "intercode"
 RANDOM_SEED = 42
 NUM_GPUS = 1
 
@@ -35,6 +36,7 @@ async def run_evaluation() -> None:
     results = await run_evaluation_basilica_text(
         dataset="dummy_dataset",
         models=[model_to_eval],
+        file_format=FileFormat.S3,
         original_model=BASE_MODEL_NAME,
         dataset_type=dataset_type,
         num_gpus=NUM_GPUS,
