@@ -325,6 +325,20 @@ PATHS_PER_FS: dict[int, tuple[str, ...]] = {
 
 ACTION_TIMEOUT_SECONDS = 30
 
+# Scoring mode for LocalBashEnv._get_reward().
+#   "continuous" — upstream InterCode formula, reward ∈ [0.01, 1.0]:
+#                    0.01
+#                  + 0.33 * (1 - erf(|diff_miss| + |diff_extra|))
+#                  + 0.33 * (same_changes / |diff_same|)
+#                  + 0.33 * tfidf_cosine(agent_obs, gold_obs)
+#   "binary"     — 1.0 iff all three parts pass (no missing/extra fs diffs,
+#                  every common change is byte-identical, agent_obs matches
+#                  gold_obs exactly after whitespace normalization); else 0.0.
+# Override at deploy time without rebuilding the image via the
+# INTERCODE_SCORING_MODE env var.
+SCORING_MODE = os.getenv("INTERCODE_SCORING_MODE", "continuous").strip().lower()
+assert SCORING_MODE in {"continuous", "binary"}, f"invalid INTERCODE_SCORING_MODE={SCORING_MODE!r}"
+
 
 class LocalBashEnv:
     """In-process, docker-free analogue of intercode.envs.BashEnv for NL2Bash."""
@@ -489,34 +503,57 @@ class LocalBashEnv:
         diff_extra = agent_changed - eval_changed
         diff_same = agent_changed & eval_changed
 
+        common_changes_total = len(diff_same)
+        common_changes_correct = sum(
+            1
+            for path in diff_same
+            if (self._agent_state or {}).get(path) == (self._eval_state or {}).get(path)
+        )
+        agent_obs = self.observation or ""
+        gold_obs = self.observation_eval or ""
+
         # Part 1: filesystem-state diff size, smoothed via erf (matches upstream).
         p1 = round(0.33 * (1 - math.erf(len(diff_miss) + len(diff_extra))), 2)
 
         # Part 2: of the paths both agent and gold modified, what fraction match?
-        p2 = 0.33
-        if diff_same:
-            correct = sum(
-                1
-                for path in diff_same
-                if (self._agent_state or {}).get(path) == (self._eval_state or {}).get(path)
-            )
-            p2 = round(0.33 * (correct / len(diff_same)), 2)
+        if common_changes_total:
+            p2 = round(0.33 * (common_changes_correct / common_changes_total), 2)
+        else:
+            p2 = 0.33
 
         # Part 3: TF-IDF cosine on agent vs gold stdout; falls back to exact match.
         try:
             from sklearn.feature_extraction.text import TfidfVectorizer
             vect = TfidfVectorizer()
-            tfidf = vect.fit_transform([self.observation or "", self.observation_eval or ""])
+            tfidf = vect.fit_transform([agent_obs, gold_obs])
             sim = float((tfidf * tfidf.T).toarray()[0][1])
         except Exception:
-            sim = 1.0 if (self.observation or "") == (self.observation_eval or "") else 0.0
+            sim = 1.0 if agent_obs == gold_obs else 0.0
         p3 = round(0.33 * sim, 2)
 
-        reward = 0.01 + p1 + p2 + p3
+        continuous_reward = 0.01 + p1 + p2 + p3
+
+        # Binary pass criteria for each component:
+        #   - fs diff:    no missing or extra changes vs gold
+        #   - content:    every commonly-changed path is byte-identical
+        #   - answer:     stdout matches gold after whitespace normalization
+        fs_pass = (len(diff_miss) == 0) and (len(diff_extra) == 0)
+        content_pass = (common_changes_total == 0) or (common_changes_correct == common_changes_total)
+        answer_pass = " ".join(agent_obs.split()) == " ".join(gold_obs.split())
+        all_pass = fs_pass and content_pass and answer_pass
+        binary_reward = 1.0 if all_pass else 0.0
+
+        reward = binary_reward if SCORING_MODE == "binary" else continuous_reward
         info = {
+            "scoring_mode": SCORING_MODE,
             "file_diff": p1,
             "file_changes": p2,
             "answer_similarity": p3,
+            "continuous_reward": continuous_reward,
+            "binary_reward": binary_reward,
+            "fs_pass": fs_pass,
+            "content_pass": content_pass,
+            "answer_pass": answer_pass,
             "diff_miss": list(diff_miss),
             "diff_extra": list(diff_extra),
             "corrupt_gold": corrupt_gold,
