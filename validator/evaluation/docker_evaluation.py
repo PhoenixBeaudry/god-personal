@@ -504,7 +504,13 @@ async def run_evaluation_basilica_text(
         deployment_ids_by_repo.setdefault(repo, dep_info)
     task_type = type(dataset_type).__name__
     is_environment_eval = isinstance(dataset_type, EnvironmentDatasetType)
-    basilica_image = vcst.ENV_EVAL_IMAGE if is_environment_eval else cst.VALIDATOR_DOCKER_IMAGE
+    is_intercode_eval = is_environment_eval and getattr(dataset_type, "environment_name", None) == "intercode"
+    if is_intercode_eval:
+        basilica_image = vcst.ENV_EVAL_INTERCODE_IMAGE
+    elif is_environment_eval:
+        basilica_image = vcst.ENV_EVAL_IMAGE
+    else:
+        basilica_image = cst.VALIDATOR_DOCKER_IMAGE
     if isinstance(dataset_type, (InstructTextDatasetType, ChatTemplateDatasetType)):
         command = ["python", "-m", "validator.evaluation.eval_instruct_text"]
     elif isinstance(dataset_type, DpoDatasetType):
@@ -517,7 +523,10 @@ async def run_evaluation_basilica_text(
             deployment_ids_by_repo=deployment_ids_by_repo,
         )
     elif isinstance(dataset_type, EnvironmentDatasetType):
-        command = ["python", "-m", "validator.evaluation.eval_environment"]
+        if is_intercode_eval:
+            command = ["python", "-m", "validator.evaluation.eval_intercode"]
+        else:
+            command = ["python", "-m", "validator.evaluation.eval_environment"]
     else:
         raise ValueError(f"Unsupported dataset type: {type(dataset_type)}")
     if not is_environment_eval and not dataset.startswith("http://") and not dataset.startswith("https://"):
@@ -547,7 +556,10 @@ async def run_evaluation_basilica_text(
         base_env["ENVIRONMENT_NAME"] = env_name
         base_env["EVAL_SEED"] = str(base_seed)
         base_env["ENV_EVAL_TEMPERATURE"] = str(vcst.ENV_EVAL_TEMPERATURE)
-        base_env["ENV_SERVER_CMD"] = vcst.ENV_SERVER_CMD_DEFAULT
+        # Intercode runs bash actions in-process via subprocess; it has no
+        # env-server, so we skip ENV_SERVER_CMD for that variant.
+        if not is_intercode_eval:
+            base_env["ENV_SERVER_CMD"] = vcst.ENV_SERVER_CMD_DEFAULT
 
     logger.debug(f"Running Basilica {task_type} evaluation (per-repo deployments) for models: {models}")
 

@@ -317,6 +317,7 @@ MODEL_COPY_ENDPOINT = "https://huggingface.co/api/models/{source_repo}/duplicate
 
 # Environment evaluation constants
 ENV_EVAL_IMAGE = "diagonalge/env-eval:latest"
+ENV_EVAL_INTERCODE_IMAGE = "gradientsio/env-eval-intercode:basilica"
 ENV_SERVER_CMD_DEFAULT = "python -m uvicorn _affinetes.server:app --host 0.0.0.0 --port 8001 --workers 1 --loop asyncio"
 BASILICA_GPU_MODELS = ["A100"]
 BASILICA_SGLANG_MIN_GPU_MEMORY_GB = 80
@@ -366,6 +367,19 @@ ENVIRONMENTS = {
             "mcts_num_rollouts": 1,
             "api_key": "dummy-key",
         },
+    },
+    "intercode": {
+        # InterCode-Bash NL2Bash: 200 global task ids packed across fs_1..fs_4
+        # (1..60, 61..113, 114..173, 174..200 with current upstream sizes).
+        # Tasks run sequentially in eval_intercode.py because the managed
+        # paths (/testbed, /system, /workspace, /backup) are global per-deployment.
+        "task_id_range": (1, 200),
+        "num_seeds": 200,
+        # Filesystem layouts are baked into ENV_EVAL_INTERCODE_IMAGE at
+        # /intercode_fs/, and there is no env-server — eval_intercode.py
+        # runs bash actions in-process.
+        "env_image": None,
+        "eval_payload_extra": {},
     },
 }
 
