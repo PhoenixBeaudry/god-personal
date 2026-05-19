@@ -850,9 +850,10 @@ async def start_training_task(task: TrainerProxyRequest, local_repo_path: str):
         if task_type == TaskType.ENVIRONMENTTASK:
             logger.info("Running Environment Server Containers", extra=log_labels)
             await log_task(training_data.task_id, task.hotkey, "Starting Environment Servers...")
+            env_name = (task.training_data.dataset_type.environment_names or [None])[0]
             for gpu in task.gpu_ids:
                 environment_server_container = await run_environment_server_container(
-                    task.training_data.dataset_type.environment_name, log_labels
+                    env_name, log_labels
                 )
                 env_server_containers.append(environment_server_container)
                 ip_address = await wait_for_env_container_ip(environment_server_container)

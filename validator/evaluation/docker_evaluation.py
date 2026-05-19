@@ -668,7 +668,7 @@ async def run_evaluation_basilica_text(
         **vcst.HF_CONTAINER_ENV,
     }
     if is_environment_eval:
-        env_name = dataset_type.environment_name
+        env_name = (dataset_type.environment_names or [None])[0]
         if env_name not in cst.ENVIRONMENT_CONFIGS:
             raise ValueError(f"Environment '{env_name}' not found. Supported: {[e.value for e in cst.EnvironmentName]}")
         base_seed = eval_seed if eval_seed is not None else vcst.ENV_EVAL_DEFAULT_SEED

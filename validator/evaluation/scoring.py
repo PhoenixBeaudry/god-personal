@@ -212,7 +212,7 @@ def _get_dataset_type(task: AnyTypeRawTask) -> TextDatasetType | None:
     elif task.task_type == TaskType.ENVIRONMENTTASK:
         env_names = getattr(task, "environment_names", [])
         return EnvironmentDatasetType(
-            environment_name=env_names[0] if env_names else None
+            environment_names=env_names or None
         )
     elif task.task_type == TaskType.CHATTASK:
         return ChatTemplateDatasetType(
