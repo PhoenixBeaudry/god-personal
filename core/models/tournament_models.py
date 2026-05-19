@@ -321,6 +321,11 @@ class TaskScore(BaseModel):
     quality_score: float
 
 
+class GitHubOwnerRepo(BaseModel):
+    owner: str
+    repo: str
+
+
 class RespondingNode(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

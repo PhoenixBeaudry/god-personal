@@ -28,6 +28,7 @@ class ModelPrepResult(BaseModel):
     was_lora: bool = Field(default=False, description="Whether the input was a LoRA adapter")
 
 
+
 class AugmentationType(str, Enum):
     GAUSSIAN_NOISE = "gaussian_noise"
     WEIGHT_SCALING = "weight_scaling"

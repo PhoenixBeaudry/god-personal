@@ -227,16 +227,20 @@ def compute_weight_stats(model) -> WeightStats:
         group_names[classify_layer(name)].append(name)
     by_group = {}
     for group, names in group_names.items():
-        all_w = torch.cat([
-            model.get_parameter(n).data.flatten().float().cpu()
-            for n in names
-        ])
+        sum_sq = 0.0
+        group_max_abs = 0.0
+        numel = 0
+        for n in names:
+            w = model.get_parameter(n).data.float()
+            sum_sq += (w ** 2).sum().item()
+            group_max_abs = max(group_max_abs, w.abs().max().item())
+            numel += w.numel()
+            del w
         by_group[group] = LayerGroupWeightStats(
-            weight_rms=float(torch.sqrt(torch.mean(all_w ** 2)).item()),
-            weight_norm=float(torch.norm(all_w).item()),
-            max_abs=float(torch.max(torch.abs(all_w)).item()),
+            weight_rms=float(math.sqrt(sum_sq / max(numel, 1))),
+            weight_norm=float(math.sqrt(sum_sq)),
+            max_abs=float(group_max_abs),
         )
-        del all_w
     return WeightStats(by_group=by_group)
 
 
@@ -279,11 +283,12 @@ def _compute_base_training_dynamics(
             attention_mask = batch["attention_mask"].to(device)
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
             batch_losses.append(outputs.loss.cpu().item())
-            logits_cpu = outputs.logits.float().cpu()
-            mask_cpu = attention_mask.cpu().float()
-            probs = F.softmax(logits_cpu, dim=-1)
+            logits = outputs.logits.float()
+            probs = F.softmax(logits, dim=-1)
             per_position_entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1)
-            entropy = (per_position_entropy * mask_cpu).sum().item() / max(mask_cpu.sum().item(), 1.0)
+            mask_f = attention_mask.to(device=logits.device).float()
+            entropy = (per_position_entropy * mask_f).sum().item() / max(mask_f.sum().item(), 1.0)
+            del logits, probs, per_position_entropy
             if not math.isnan(entropy) and not math.isinf(entropy):
                 batch_entropies.append(entropy)
 
@@ -334,6 +339,7 @@ def _compute_base_training_dynamics(
             max_abs=float(torch.max(torch.abs(g_2d)).item()),
             top_singular_values=top_sv,
         )
+        del g, g_2d
 
     noise_scale = _compute_gradient_noise_scale(model, loader, device, n_subbatches)
 
@@ -386,7 +392,7 @@ def _compute_gradient_noise_scale(model, loader, device, n_subbatches: int) -> f
         for name, param in model.named_parameters():
             if param.grad is None:
                 continue
-            g = param.grad.detach().float().cpu()
+            g = param.grad.detach().to(device="cpu", dtype=torch.float32)
             if name not in grad_sum:
                 grad_sum[name] = torch.zeros_like(g)
                 grad_sum_sq[name] = torch.zeros_like(g)
@@ -481,12 +487,19 @@ def _compute_instruct_stats(
     text_extractor=None,
 ) -> InstructBaselineStats:
     extractor = text_extractor or _extract_instruct_texts
-    texts = extractor(records[:max_samples])
+
+    # Compute lengths on ALL records for accurate seq_length_distribution.
+    # Model forward passes (grad norms, loss) use max_samples subset.
+    all_texts_full = extractor(records)
+    all_prompts_full, all_completions_full = zip(*all_texts_full) if all_texts_full else ([], [])
+    prompt_lengths = _token_lengths(list(all_prompts_full), tokenizer)
+    completion_lengths = _token_lengths(list(all_completions_full), tokenizer)
+
+    # Subset for model forward passes
+    texts = all_texts_full[:max_samples]
     prompts, completions = zip(*texts) if texts else ([], [])
     all_texts = [p + " " + c for p, c in texts]
 
-    prompt_lengths = _token_lengths(list(prompts), tokenizer)
-    completion_lengths = _token_lengths(list(completions), tokenizer)
 
     unique_tokens = _count_unique_tokens(all_texts, tokenizer)
     vocab_size = len(tokenizer)
@@ -518,14 +531,18 @@ def _compute_instruct_stats(
 def _compute_dpo_stats(
     model, tokenizer, records: list[dict], device: str, max_samples: int,
 ) -> DpoBaselineStats:
-    texts = _extract_dpo_texts(records[:max_samples])
-    prompts, chosens, rejecteds = zip(*texts) if texts else ([], [], [])
-
-    prompt_lengths = _token_lengths(list(prompts), tokenizer)
-    chosen_lengths = _token_lengths(list(chosens), tokenizer)
-    rejected_lengths = _token_lengths(list(rejecteds), tokenizer)
+    # Compute lengths on ALL records for accurate distributions
+    all_texts_full = _extract_dpo_texts(records)
+    all_p, all_c, all_r = zip(*all_texts_full) if all_texts_full else ([], [], [])
+    prompt_lengths = _token_lengths(list(all_p), tokenizer)
+    chosen_lengths = _token_lengths(list(all_c), tokenizer)
+    rejected_lengths = _token_lengths(list(all_r), tokenizer)
 
     ratios = [c / r if r > 0 else 1.0 for c, r in zip(chosen_lengths, rejected_lengths)]
+
+    # Subset for model forward passes
+    texts = all_texts_full[:max_samples]
+    prompts, chosens, rejecteds = zip(*texts) if texts else ([], [], [])
     all_texts = [p + " " + c for p, c in zip(prompts, chosens)]
 
     all_dpo_texts = list(prompts) + list(chosens) + list(rejecteds)
@@ -573,8 +590,12 @@ def _compute_grpo_stats(
     model, tokenizer, records: list[dict], device: str, max_samples: int,
     reward_functions=None,
 ) -> GrpoBaselineStats:
-    prompts = _extract_grpo_texts(records[:max_samples])
-    prompt_lengths = _token_lengths(prompts, tokenizer)
+    # Compute lengths on ALL records for accurate distributions
+    all_prompts_full = _extract_grpo_texts(records)
+    prompt_lengths = _token_lengths(all_prompts_full, tokenizer)
+
+    # Subset for model forward passes
+    prompts = all_prompts_full[:max_samples]
 
     unique_tokens = _count_unique_tokens(prompts, tokenizer)
     vocab_size = len(tokenizer)
@@ -597,7 +618,10 @@ def _compute_grpo_stats(
     if reward_functions:
         completions = _generate_completions(model, tokenizer, prompts[:10], device)
         for rf in reward_functions:
-            func_code = rf.reward_func if hasattr(rf, "reward_func") else str(rf)
+            func_code = rf.get("reward_func") if isinstance(rf, dict) else (rf.reward_func if hasattr(rf, "reward_func") else str(rf))
+            # Extract function name from source for clean keys
+            name_match = re.match(r"def\s+(\w+)", func_code.strip()) if func_code else None
+            fallback_name = name_match.group(1) if name_match else func_code[:30]
             try:
                 namespace: dict = {}
                 exec(func_code, namespace)  # noqa: S102
@@ -607,14 +631,14 @@ def _compute_grpo_stats(
                 ]
                 if not callables:
                     print(f"Warning: reward function code defined no callables: {func_code[:80]}", flush=True)
-                    reward_scores[func_code[:30]] = 0.0
+                    reward_scores[fallback_name] = 0.0
                     continue
                 func_name, func = callables[0]
                 scores = func(completions)
                 reward_scores[func_name] = float(np.mean(scores))
             except Exception as exc:
-                print(f"Warning: reward function failed: {exc}", flush=True)
-                reward_scores[func_code[:30]] = 0.0
+                print(f"Warning: reward function {fallback_name} failed: {exc}", flush=True)
+                reward_scores[fallback_name] = 0.0
 
     training = GrpoTrainingDynamics(**base_dynamics, baseline_reward_scores=reward_scores)
 

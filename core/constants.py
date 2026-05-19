@@ -39,6 +39,7 @@ class TrainingStartPoint(str, Enum):
     PREVIOUS_WINNER = "previous_winner"
 
 
+
 class EnvironmentName(str, Enum):
     GIN_RUMMY = "gin_rummy"
     LIARS_DICE = "liars_dice"
@@ -63,6 +64,13 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         num_seeds=2000,
         num_baseline_episodes=50,
         eval_type=EvalType.PVP,
+        env_image=MCTS_API_DOCKER_IMAGE,
+        eval_payload_extra={
+            "opponent": "mcts",
+            "mcts_max_simulations": 50,
+            "mcts_num_rollouts": 1,
+            "api_key": "dummy-key",
+        },
     ),
     EnvironmentName.LIARS_DICE: EnvironmentConfig(
         task_id_min=100_000_000,
@@ -70,6 +78,13 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         num_seeds=10_000,
         num_baseline_episodes=50,
         eval_type=EvalType.PVP,
+        env_image=MCTS_API_DOCKER_IMAGE,
+        eval_payload_extra={
+            "opponent": "mcts",
+            "mcts_max_simulations": 225,
+            "mcts_num_rollouts": 1,
+            "api_key": "dummy-key",
+        },
     ),
     EnvironmentName.GIN_RUMMY: EnvironmentConfig(
         task_id_min=300_000_000,
@@ -77,6 +92,13 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         num_seeds=1000,
         num_baseline_episodes=25,
         eval_type=EvalType.PVP,
+        env_image=MCTS_API_DOCKER_IMAGE,
+        eval_payload_extra={
+            "opponent": "mcts",
+            "mcts_max_simulations": 50,
+            "mcts_num_rollouts": 1,
+            "api_key": "dummy-key",
+        },
     ),
 }
 

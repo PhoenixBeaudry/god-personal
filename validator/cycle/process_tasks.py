@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 
-import basilica
 import validator.core.constants as cst
 import validator.db.sql.nodes as nodes_sql
 import validator.db.sql.tasks as tasks_sql
@@ -295,6 +294,12 @@ async def _evaluate_and_update_hotkeys(task: AnyTypeRawTask, hotkeys: list[str],
 async def _evaluate_pending_pairs_for_task(task: AnyTypeRawTask, num_gpus: int, config: Config):
     assert task.task_id is not None
 
+    if task.task_type == TaskType.GRPOTASK:
+        training_statuses = await tournament_sql.get_training_status_for_task(str(task.task_id), config.psql_db)
+        if training_statuses and any(status not in ("success", "failure") for status in training_statuses.values()):
+            logger.info(f"GRPO task {task.task_id} still has non-terminal training rows; deferring batch evaluation")
+            return
+
     pending_rows = await tasks_sql.get_task_evaluations_by_status(task.task_id, "pending", config.psql_db)
     evaluating_rows = await tasks_sql.get_task_evaluations_by_status(task.task_id, "evaluating", config.psql_db)
     if not pending_rows and not evaluating_rows:
@@ -347,41 +352,6 @@ async def _handle_delayed_tasks(config: Config):
     await asyncio.gather(*[_move_back_to_looking_for_nodes(task, config) for task in finished_delay_tasks])
 
 
-async def _cleanup_all_running_basilica_deployments(config: Config) -> None:
-    """Cleanup of Basilica deployments on startup, preserving active eval deployments."""
-    protected_deployment_ids: set[str] = set()
-    try:
-        protected_deployment_ids = await tasks_sql.get_deployment_ids_from_evaluating_tasks(config.psql_db)
-    except Exception as e:
-        logger.warning(f"Failed to fetch protected deployment ids from evaluations: {e}")
-
-    try:
-        client = basilica.BasilicaClient()
-        deployments = await asyncio.to_thread(client.list)
-    except Exception as e:
-        logger.warning(f"Failed to list Basilica deployments for cleanup: {e}")
-        return
-
-    deleted_count = 0
-    kept_count = 0
-    for deployment in deployments:
-        deployment_name = getattr(deployment, "name", None)
-        if deployment_name and deployment_name in protected_deployment_ids:
-            kept_count += 1
-            continue
-        try:
-            await asyncio.to_thread(deployment.delete)
-            deleted_count += 1
-        except Exception as e:
-            logger.warning(f"Failed to delete Basilica deployment during startup cleanup: {e}")
-
-    if deleted_count or kept_count:
-        logger.info(
-            f"Startup Basilica cleanup deleted={deleted_count} kept={kept_count} "
-            f"(protected by pending/evaluating evaluations)"
-        )
-
-
 async def _recover_evaluating_tasks(config: Config):
     stopped_mid_evaluation = await tasks_sql.get_tasks_with_status(
         TaskStatus.EVALUATING, psql_db=config.psql_db, tournament_filter="exclude", benchmark_filter="include"
@@ -390,7 +360,11 @@ async def _recover_evaluating_tasks(config: Config):
     for task in stopped_mid_evaluation:
         if task.task_id is None:
             continue
-        await tasks_sql.reset_task_evaluations_to_pending(task.task_id, config.psql_db)
+        if task.task_type == TaskType.GRPOTASK:
+            logger.info(f"Resetting all GRPO evaluation rows to pending for task {task.task_id}")
+            await tasks_sql.reset_all_task_evaluations_to_pending(task.task_id, config.psql_db)
+        else:
+            await tasks_sql.reset_task_evaluations_to_pending(task.task_id, config.psql_db)
 
 
 async def _move_back_to_pending_status(task, config):
@@ -482,17 +456,22 @@ async def evaluate_tasks_loop(config: Config):
     processing_task_ids: set[str] = set()
 
     while True:
-        await _seed_task_evaluations_for_evaluation(config)
+        try:
+            await _seed_task_evaluations_for_evaluation(config)
 
-        evaluating_tasks = await _get_tasks_ready_for_evaluation(config)
-        if evaluating_tasks:
-            logger.info(f"Found {len(evaluating_tasks)} tasks ready for evaluation work")
-            for task in evaluating_tasks:
-                if task.task_id not in processing_task_ids:
-                    processing_task_ids.add(task.task_id)
-                    asyncio.create_task(_run_and_cleanup(task, processing_task_ids, config))
-        else:
-            logger.info("No tasks ready for evaluation - waiting 30 seconds")
+            evaluating_tasks = await _get_tasks_ready_for_evaluation(config)
+            if evaluating_tasks:
+                logger.info(f"Found {len(evaluating_tasks)} tasks ready for evaluation work")
+                for task in evaluating_tasks:
+                    if task.task_id not in processing_task_ids:
+                        processing_task_ids.add(task.task_id)
+                        asyncio.create_task(_run_and_cleanup(task, processing_task_ids, config))
+            else:
+                logger.info("No tasks ready for evaluation - waiting 30 seconds")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"evaluate_tasks_loop iteration failed: {e!r}", exc_info=True)
         await asyncio.sleep(30)
 
 
@@ -535,7 +514,6 @@ def compute_required_gpus(task: RawTask) -> int:
 
 
 async def process_completed_tasks(config: Config) -> None:
-    await _cleanup_all_running_basilica_deployments(config)
     await _recover_evaluating_tasks(config)
 
     await asyncio.gather(evaluate_tasks_loop(config), cleanup_model_cache_loop(config.psql_db))

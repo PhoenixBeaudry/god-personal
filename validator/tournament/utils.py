@@ -3,13 +3,17 @@
 import subprocess
 import tempfile
 from collections import Counter
+from collections import defaultdict
+from urllib.parse import urlparse
 from pathlib import Path
 
 import aiohttp
 import httpx
 import numpy as np
 
+from core.models.tournament_models import GitHubOwnerRepo
 from core.models.tournament_models import GpuRequirement
+from core.models.tournament_models import RespondingNode
 from core.models.tournament_models import RoundType
 from core.models.tournament_models import TournamentData
 from core.models.tournament_models import TournamentParticipant
@@ -37,6 +41,7 @@ from validator.db import constants as db_cst
 from validator.db.database import PSQLDB
 from validator.db.sql.submissions_and_scoring import get_all_scores_and_losses_for_task
 from validator.db.sql.submissions_and_scoring import get_task_winner
+from validator.db.sql.submissions_and_scoring import update_task_node_quality_score_only
 from validator.db.sql.tasks import get_task
 from validator.db.sql.tournaments import count_champion_consecutive_wins
 from validator.db.sql.tournaments import get_latest_completed_tournament
@@ -221,6 +226,152 @@ async def _get_scores_for_task(task_id: str, psql_db: PSQLDB) -> dict[str, float
             continue
         scores[result.hotkey] = result.adjusted_loss
     return scores
+
+
+async def did_contender_beat_boss_on_task(
+    task_id: str, contender_hotkey: str, threshold_percentage: float, psql_db: PSQLDB
+) -> bool:
+    """Return True if contender beats boss on this task by threshold (environment: higher is better)."""
+    scores = await _get_scores_for_task(task_id, psql_db)
+    contender_score = scores.get(contender_hotkey)
+    boss_score = scores.get(EMISSION_BURN_HOTKEY)
+
+    if contender_score is None:
+        return False
+    if boss_score is None:
+        return True
+
+    return contender_score >= boss_score * (1 + threshold_percentage)
+
+
+async def update_threshold_adjusted_quality_scores_for_task(
+    task_id: str,
+    winner_hotkey: str,
+    threshold_percentage: float,
+    psql_db: PSQLDB,
+    compared_hotkeys: list[str] | None = None,
+) -> None:
+    """Persist threshold-adjusted task scores while preserving raw losses."""
+    miner_results = await get_task_results_for_ranking(task_id, psql_db)
+    if not miner_results:
+        logger.warning(f"No valid results for threshold-adjusted scoring on task {task_id}")
+        return
+
+    allowed_hotkeys = set(compared_hotkeys) if compared_hotkeys else None
+    scored_hotkeys = {result.hotkey for result in miner_results if allowed_hotkeys is None or result.hotkey in allowed_hotkeys}
+    if winner_hotkey not in scored_hotkeys:
+        logger.warning(
+            f"Threshold-adjusted winner {winner_hotkey} not found in valid results for task {task_id}; skipping score update"
+        )
+        return
+
+    threshold_pct = threshold_percentage * 100
+    for result in miner_results:
+        if allowed_hotkeys is not None and result.hotkey not in allowed_hotkeys:
+            continue
+
+        is_winner = result.hotkey == winner_hotkey
+        quality_score = 3.0 if is_winner else 0.0
+        score_reason = (
+            f"Threshold-adjusted winner at {threshold_pct:.1f}% progressive threshold"
+            if is_winner
+            else f"Lost to threshold-adjusted winner {winner_hotkey} at {threshold_pct:.1f}% progressive threshold"
+        )
+        await update_task_node_quality_score_only(
+            task_id=task_id,
+            hotkey=result.hotkey,
+            quality_score=quality_score,
+            score_reason=score_reason,
+            psql_db=psql_db,
+        )
+
+    logger.info(
+        f"Updated threshold-adjusted quality scores for task {task_id}: winner={winner_hotkey}, "
+        f"threshold={threshold_pct:.1f}%"
+    )
+
+
+async def select_best_contender_by_cumulative_boss_wins(
+    tournament: TournamentData,
+    candidate_hotkeys: list[str],
+    psql_db: PSQLDB,
+) -> str | None:
+    """Select one contender using cumulative threshold-qualified wins vs boss.
+
+    Uses all completed non-final rounds as the comparison horizon.
+    Returns None when no contender has at least one threshold-qualified win.
+    """
+    if not candidate_hotkeys:
+        return None
+
+    boss_hotkey = EMISSION_BURN_HOTKEY
+    non_boss_contenders = [h for h in candidate_hotkeys if h != boss_hotkey]
+    if not non_boss_contenders:
+        return None
+
+    current_champion = tournament.base_winner_hotkey or boss_hotkey
+    consecutive_wins = await count_champion_consecutive_wins(psql_db, tournament.tournament_type, current_champion)
+    threshold_percentage = get_progressive_threshold(consecutive_wins, tournament.tournament_type)
+
+    all_rounds = await get_tournament_rounds(tournament.tournament_id, psql_db)
+    qualifying_rounds = [r for r in all_rounds if not r.is_final_round]
+    qualifying_rounds.sort(key=lambda r: r.round_number)
+    if not qualifying_rounds:
+        logger.info("No completed non-final rounds found for contender selection.")
+        return None
+
+    up_to_round_number = qualifying_rounds[-1].round_number
+
+    contender_wins: dict[str, int] = {contender: 0 for contender in non_boss_contenders}
+    for contender in non_boss_contenders:
+        for round_data in qualifying_rounds:
+            round_tasks = await get_tournament_tasks(round_data.round_id, psql_db)
+            for task in round_tasks:
+                if await did_contender_beat_boss_on_task(task.task_id, contender, threshold_percentage, psql_db):
+                    contender_wins[contender] += 1
+
+    best_wins = max(contender_wins.values(), default=0)
+    if best_wins <= 0:
+        logger.info(
+            f"No contender beat boss on any task in non-final rounds up to R{up_to_round_number} by threshold; "
+            "returning no contender."
+        )
+        return None
+
+    best_contenders = [h for h, wins in contender_wins.items() if wins == best_wins]
+    if len(best_contenders) == 1:
+        logger.info(
+            f"Selected contender {best_contenders[0]} with {best_wins} wins "
+            f"over boss in R1-R{up_to_round_number}"
+        )
+        return best_contenders[0]
+
+    tie_break_round = next((r for r in qualifying_rounds if r.round_number == up_to_round_number), None)
+    tie_break_scores: dict[str, float] = {}
+    if tie_break_round:
+        tie_break_tasks = await get_tournament_tasks(tie_break_round.round_id, psql_db)
+        for contender in best_contenders:
+            best_score = float("-inf")
+            found = False
+            for task in tie_break_tasks:
+                scores = await _get_scores_for_task(task.task_id, psql_db)
+                score = scores.get(contender)
+                if score is None:
+                    continue
+                found = True
+                best_score = max(best_score, score)
+            tie_break_scores[contender] = best_score if found else float("-inf")
+
+    selected = sorted(
+        best_contenders,
+        key=lambda contender: (tie_break_scores.get(contender, float("-inf")), contender),
+        reverse=True,
+    )[0]
+    logger.info(
+        f"Tie on R1-R{up_to_round_number} wins ({best_wins}) between {best_contenders}; "
+        f"selected {selected} by round-{up_to_round_number} score / deterministic hotkey tiebreak."
+    )
+    return selected
 
 
 async def determine_env_tournament_winner(
@@ -785,25 +936,29 @@ async def get_knockout_winners(
             if task_object.task_type == TaskType.GRPOTASK:
                 # For GRPO tasks, higher scores are better
                 if boss_loss * boss_multiplier > opponent_loss:
-                    task_winners.append(boss_hotkey)
+                    task_winner = boss_hotkey
+                    task_winners.append(task_winner)
                     logger.info(
                         f"GRPO task: Boss wins (higher is better): {boss_loss:.6f} * "
                         f"{boss_multiplier:.3f} = {boss_loss * boss_multiplier:.6f} > {opponent_loss:.6f}"
                     )
                 else:
-                    task_winners.append(opponent_hotkey)
+                    task_winner = opponent_hotkey
+                    task_winners.append(task_winner)
                     logger.info(
                         f"GRPO task: Opponent wins (higher is better): {opponent_loss:.6f} >= {boss_loss * boss_multiplier:.6f}"
                     )
             elif task_object.task_type == TaskType.ENVIRONMENTTASK:
                 if boss_loss * boss_multiplier > opponent_loss:
-                    task_winners.append(boss_hotkey)
+                    task_winner = boss_hotkey
+                    task_winners.append(task_winner)
                     logger.info(
                         f"Environment task: Boss wins (higher is better): {boss_loss:.6f} * "
                         f"{boss_multiplier:.3f} = {boss_loss * boss_multiplier:.6f} > {opponent_loss:.6f}"
                     )
                 else:
-                    task_winners.append(opponent_hotkey)
+                    task_winner = opponent_hotkey
+                    task_winners.append(task_winner)
                     logger.info(
                         "Environment task: Opponent wins (higher is better): "
                         f"{opponent_loss:.6f} >= {boss_loss * boss_multiplier:.6f}"
@@ -811,17 +966,27 @@ async def get_knockout_winners(
             else:
                 # For other tasks, lower scores are better
                 if boss_loss * boss_divisor < opponent_loss:
-                    task_winners.append(boss_hotkey)
+                    task_winner = boss_hotkey
+                    task_winners.append(task_winner)
                     logger.info(
                         f"{task_object.task_type} task: Boss wins (lower is better): "
                         f"{boss_loss:.6f} * {boss_divisor:.3f} = {boss_loss * boss_divisor:.6f} < {opponent_loss:.6f}"
                     )
                 else:
-                    task_winners.append(opponent_hotkey)
+                    task_winner = opponent_hotkey
+                    task_winners.append(task_winner)
                     logger.info(
                         f"{task_object.task_type} task: Opponent wins (lower is better): "
                         f"{opponent_loss:.6f} <= {boss_loss * boss_divisor:.6f}"
                     )
+
+            await update_threshold_adjusted_quality_scores_for_task(
+                task_id=task.task_id,
+                winner_hotkey=task_winner,
+                threshold_percentage=threshold_percentage,
+                compared_hotkeys=[boss_hotkey, opponent_hotkey],
+                psql_db=psql_db,
+            )
 
         boss_round_winner = determine_boss_round_winner(task_winners, boss_hotkey, tournament.tournament_type)
 
@@ -1194,3 +1359,77 @@ async def validate_repo_license(repo_url: str, github_token: str | None = None) 
     except Exception as e:
         logger.error(f"Repository validation failed for repo {repo_url}: {str(e)}")
         return False
+
+
+def parse_github_owner_repo(repo_url: str) -> GitHubOwnerRepo | None:
+    path = urlparse(repo_url).path.strip("/")
+    parts = path.split("/")
+    if len(parts) >= 2 and parts[0] and parts[1]:
+        owner, repo_name = parts[0], parts[1].removesuffix(".git")
+        return GitHubOwnerRepo(owner=owner, repo=repo_name)
+    return None
+
+
+async def validate_github_tokens(nodes: list[RespondingNode]) -> None:
+    async with httpx.AsyncClient(timeout=10) as client:
+        for node in nodes:
+            token = node.training_repo_response.github_token
+            if not token:
+                continue
+
+            parsed = parse_github_owner_repo(node.training_repo_response.github_repo)
+            if not parsed:
+                node.training_repo_response.github_token = None
+                continue
+
+            try:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{parsed.owner}/{parsed.repo}",
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                )
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"Token for {node.node.hotkey} does not grant access to "
+                        f"{parsed.owner}/{parsed.repo} (HTTP {resp.status_code}) — ignoring token"
+                    )
+                    node.training_repo_response.github_token = None
+            except Exception as e:
+                logger.warning(f"Token validation failed for {node.node.hotkey}: {e} — ignoring token")
+                node.training_repo_response.github_token = None
+
+
+def deduplicate_by_github_account(nodes: list[RespondingNode]) -> list[RespondingNode]:
+    by_account: defaultdict[str, list[RespondingNode]] = defaultdict(list)
+    no_account: list[RespondingNode] = []
+
+    for node in nodes:
+        parsed = parse_github_owner_repo(node.training_repo_response.github_repo)
+        if parsed:
+            by_account[parsed.owner.lower()].append(node)
+        else:
+            no_account.append(node)
+
+    kept: list[RespondingNode] = list(no_account)
+    for account, group in by_account.items():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+
+        with_token = [n for n in group if n.training_repo_response.github_token]
+        without_token = [n for n in group if not n.training_repo_response.github_token]
+
+        if with_token:
+            winner = with_token[0]
+            rejected = with_token[1:] + without_token
+        else:
+            winner = without_token[0]
+            rejected = without_token[1:]
+
+        kept.append(winner)
+        for r in rejected:
+            logger.warning(
+                f"Rejecting {r.node.hotkey} — duplicate GitHub account '{account}' "
+                f"(kept {winner.node.hotkey})"
+            )
+
+    return kept

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 from uuid import uuid4
 
@@ -102,13 +103,40 @@ class TrainerProxyRequest(BaseModel):
     requested_datasets: list[str] | None = None
 
 
-class TrainerTaskLog(TrainerProxyRequest):
+class TrainerJob(BaseModel):
+    """Base for any job running on a trainer that occupies GPUs."""
+
+    job_type: str
+    gpu_ids: list[int]
     status: TaskStatus
-    started_at: datetime | None
-    finished_at: datetime | None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     container_name: str | None = None
-    wandb_url: str | None = None
     logs: list[str] = []
+
+
+class TrainerTaskLog(TrainerJob):
+    """Training job tracked in the trainer's task history."""
+
+    job_type: Literal["training"] = "training"
+    training_data: TrainRequestImage | TrainRequestText
+    github_repo: str
+    hotkey: str
+    github_branch: str | None = None
+    github_commit_hash: str | None = None
+    github_token: str | None = None
+    requested_datasets: list[str] | None = None
+    wandb_url: str | None = None
+
+
+class ModelPrepJob(TrainerJob):
+    """Model prep job tracked in the trainer's task history."""
+
+    job_type: Literal["model_prep"] = "model_prep"
+    task_id: str
+    model_id: str
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class TrainResponse(BaseModel):
@@ -393,12 +421,26 @@ class NewTaskRequestImage(NewTaskRequest):
     model_repo: str = Field(..., description="The model repository to use")
     image_text_pairs: list[ImageTextPair] = Field(
         ...,
-        description="List of image and text file pairs",
+        description="List of image and text file URL pairs",
         min_length=cst.MIN_IMAGE_TEXT_PAIRS,
         max_length=cst.MAX_IMAGE_TEXT_PAIRS,
     )
     ds_id: str = Field(
-        default_factory=lambda: str(uuid4()), description="A ds name. The actual dataset is provided via the image_text_pairs"
+        default_factory=lambda: str(uuid4()),
+        description="A ds name. The actual dataset is provided via the image_text_pairs",
+    )
+    model_type: ImageModelType = ImageModelType.SDXL
+
+
+class NewTaskRequestImageZip(NewTaskRequest):
+    model_config = ConfigDict(protected_namespaces=())
+    model_repo: str = Field(..., description="The model repository to use")
+    ds: str = Field(
+        ...,
+        description=(
+            "Public or presigned URL to a zip file containing image files and matching .txt caption files. "
+            "Each image and caption must share the same filename stem."
+        ),
     )
     model_type: ImageModelType = ImageModelType.SDXL
 
@@ -537,7 +579,8 @@ class EnvironmentTaskDetails(TaskDetails):
 
 class ImageTaskDetails(TaskDetails):
     task_type: TaskType = TaskType.IMAGETASK
-    image_text_pairs: list[ImageTextPair]
+    image_text_pairs: list[ImageTextPair] | None = None
+    ds_repo: str | None = None
     base_model_repository: str = Field(..., description="The repository for the model")
     model_type: ImageModelType = ImageModelType.SDXL
 
