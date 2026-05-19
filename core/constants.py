@@ -85,7 +85,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
     EnvironmentName.INTERCODE: EnvironmentConfig(
         task_id_min=1,
         task_id_max=200,
-        num_seeds=20,
+        num_seeds=200,
         num_baseline_episodes=10,
         env_image=None, #TODO Deal with this
         eval_payload_extra={
