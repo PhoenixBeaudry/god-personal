@@ -676,7 +676,7 @@ async def get_trainers(psql_db: PSQLDB) -> list[TrainerInfo]:
     """Get all trainers and their GPU information from the database"""
     async with await psql_db.connection() as connection:
         query = f"""
-            SELECT {cst.TRAINER_IP}, {cst.GPU_ID}, {cst.GPU_TYPE}, {cst.VRAM_GB}, {cst.USED_UNTIL}
+            SELECT {cst.TRAINER_IP}, {cst.GPU_ID}, {cst.GPU_TYPE}, {cst.VRAM_GB}, {cst.USED_UNTIL}, {cst.UPDATED_AT}
             FROM {cst.TRAINERS_GPUS_TABLE}
             ORDER BY {cst.TRAINER_IP}, {cst.GPU_ID}
         """
@@ -700,6 +700,7 @@ async def get_trainers(psql_db: PSQLDB) -> list[TrainerInfo]:
                     vram_gb=row[cst.VRAM_GB],
                     available=available,
                     used_until=used_until,
+                    updated_at=row[cst.UPDATED_AT],
                 )
             )
 

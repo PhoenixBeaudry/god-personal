@@ -32,6 +32,9 @@ DSTACK_TEXT_REGIONS = ["CA-MTL-1", "AP-JP-1", "US-KS-2", "US-GA-2", "US-CA-2", "
 
 # Trainer requests
 TRAINER_HTTP_TIMEOUT = 30.0  # seconds
+# Grace period after GPU reservation before trusting trainer "available" reports.
+# Covers the gap between dispatch and container startup (clone, docker build, etc).
+GPU_RESERVATION_GRACE_PERIOD_SECONDS = 10 * 60  # 10 minutes
 EXPECTED_TRAINING_START_MESSAGE = "Started Training!"
 NO_RETRY_RESULT = "No Retry"
 
