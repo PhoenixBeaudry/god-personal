@@ -669,13 +669,11 @@ class TestMultiGroupAggregation:
         ):
             winners = await get_environment_group_winners(round_data, tasks, MagicMock(), MagicMock())
 
-        assert len(winners) == 4
+        assert len(winners) == 2  # top 1 per group × 2 groups
         assert "g1_hk_0" in winners
-        assert "g1_hk_1" in winners
         assert "g2_hk_0" in winners
-        assert "g2_hk_1" in winners
-        assert "g1_hk_2" not in winners
-        assert "g2_hk_2" not in winners
+        assert "g1_hk_1" not in winners
+        assert "g2_hk_1" not in winners
 
     @pytest.mark.asyncio
     async def test_small_group_eliminates_at_least_one(self):

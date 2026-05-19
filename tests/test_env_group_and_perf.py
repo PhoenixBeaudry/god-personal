@@ -149,7 +149,7 @@ class TestEnvGroupWinnerAdvancement:
         return result
 
     @pytest.mark.asyncio
-    async def test_top_2_advance_from_group(self):
+    async def test_top_n_advance_from_group(self):
         """In a group of 4 (excluding boss), top ENV_ADVANCE_PER_GROUP advance."""
         from validator.tournament.utils import get_environment_group_winners
 
@@ -177,7 +177,6 @@ class TestEnvGroupWinnerAdvancement:
 
         assert len(winners) == t_cst.ENV_ADVANCE_PER_GROUP
         assert "hk_0" in winners
-        assert "hk_1" in winners
 
     @pytest.mark.asyncio
     async def test_boss_excluded_from_advancement_ranking(self):
@@ -211,12 +210,12 @@ class TestEnvGroupWinnerAdvancement:
 
         # Boss should not be in winners — only contenders
         assert EMISSION_BURN_HOTKEY not in winners
+        assert len(winners) == t_cst.ENV_ADVANCE_PER_GROUP
         assert "hk_0" in winners
-        assert "hk_1" in winners
 
     @pytest.mark.asyncio
     async def test_at_least_one_eliminated(self):
-        """With 3 non-boss participants and ENV_ADVANCE_PER_GROUP=2,
+        """With 3 non-boss participants and ENV_ADVANCE_PER_GROUP=1,
         at least 1 must be eliminated to guarantee convergence."""
         from validator.tournament.utils import get_environment_group_winners
 

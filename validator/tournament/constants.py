@@ -45,7 +45,7 @@ MAX_ENVIRONMENT_GROUP_SIZE = 6
 
 
 # Environment tournament round structure
-ENV_ADVANCE_PER_GROUP = 2
+ENV_ADVANCE_PER_GROUP = 1
 ENV_FINAL_ROUND_TASK_COUNT = 3
 ENV_ENVS_PER_ROUND_MULTIPLIER = 2  # R1=2, R2=4, R3=6 (capped at total available)
 ENV_TRAINING_HOURS_BY_ROUND: dict[int, float] = {1: 1.5, 2: 2.0, 3: 2.5, 4: 3.0}
