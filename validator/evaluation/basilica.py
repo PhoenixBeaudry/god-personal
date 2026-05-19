@@ -351,20 +351,24 @@ async def _run_single_basilica_eval_repo(
     repo_to_hotkey: dict[str, str],
     hotkey: str | None = None,
     existing_deployment_name: str | None = None,
+    local_logging: bool | None = False,
 ) -> dict | str:
     """Run one repo eval with retries. Supports resume via existing_deployment_name."""
     eval_id = str(uuid.uuid4())
     task_id_str = str(task_id) if task_id else "unknown"
     hotkey_str = hotkey or repo_to_hotkey.get(repo) or "unknown"
-    eval_logger = get_environment_logger(
-        name=f"basilica-{repo.split('/')[-1]}-{eval_id[:8]}",
-        repo_id=repo,
-        eval_id=eval_id,
-        model=model_name,
-        task_type=task_type,
-        task_id=task_id_str,
-        hotkey=hotkey_str,
-    )
+    if not local_logging:
+        eval_logger = get_environment_logger(
+            name=f"basilica-{repo.split('/')[-1]}-{eval_id[:8]}",
+            repo_id=repo,
+            eval_id=eval_id,
+            model=model_name,
+            task_type=task_type,
+            task_id=task_id_str,
+            hotkey=hotkey_str,
+        )
+    else:
+        eval_logger = get_logger(f"{__name__}.basilica.{repo.split('/')[-1]}.{eval_id[:8]}")
 
     def log_step(step: str, **fields) -> None:
         _log_eval_step(eval_logger, step, **fields)
@@ -478,6 +482,7 @@ async def run_basilica_eval_repos(
     psql_db: PSQLDB | None,
     repo_to_hotkey: dict[str, str],
     deployment_ids_by_repo: dict[str, str] | None = None,
+    local_logging: bool | None = False,
 ) -> dict[str, dict | str]:
     deployment_ids_by_repo = deployment_ids_by_repo or {}
     task_results = await asyncio.gather(
@@ -499,6 +504,7 @@ async def run_basilica_eval_repos(
                 existing_deployment_name=(
                     deployment_ids_by_repo.get(repo) if isinstance(deployment_ids_by_repo.get(repo), str) else None
                 ),
+                local_logging=local_logging,
             )
             for repo in repos
         ],

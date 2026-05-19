@@ -83,6 +83,7 @@ async def run_evaluation_basilica_text(
     eval_seed: int | None = None,
     task_id: UUID | None = None,
     psql_db: PSQLDB | None = None,
+    local_logging: bool | None = False,
 ) -> DockerEvaluationResults:
     deployment_ids_by_repo = {}
     db_deployment_ids_by_repo, repo_to_hotkey = await _db_read_with_retry(
@@ -175,6 +176,7 @@ async def run_evaluation_basilica_text(
         psql_db=psql_db,
         repo_to_hotkey=repo_to_hotkey,
         deployment_ids_by_repo=deployment_ids_str,
+        local_logging=local_logging,
     )
 
     evaluation_results = _collect_repo_evaluation_results(models, repo_results)

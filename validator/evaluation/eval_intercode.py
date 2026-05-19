@@ -813,13 +813,15 @@ async def _run() -> None:
         temperature = float(os.getenv("ENV_EVAL_TEMPERATURE", str(vcst.ENV_EVAL_TEMPERATURE)))
 
         env_name = _parse_environment_name()
-        env_config = vcst.ENVIRONMENTS[env_name]
-        task_id_min, task_id_max = env_config["task_id_range"]
+        env_config = cst.ENVIRONMENT_CONFIGS[env_name]
+        task_id_min = env_config.task_id_min
+        task_id_max = env_config.task_id_max
+        _num_seeds_env = os.getenv("ENV_EVAL_NUM_SEEDS")
         _num_seeds_env = os.getenv("ENV_EVAL_NUM_SEEDS")
         if _num_seeds_env is not None and _num_seeds_env.strip() != "":
             num_seeds = int(_num_seeds_env)
         else:
-            num_seeds = env_config.get("num_seeds", vcst.ENV_EVAL_NUM_SEEDS)
+            num_seeds = env_config.num_seeds
 
         seed_generator = random.Random(base_seed)
         eval_seeds = [seed_generator.randint(1, 1_000_000) for _ in range(num_seeds)]
