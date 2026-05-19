@@ -817,7 +817,6 @@ async def _run() -> None:
         task_id_min = env_config.task_id_min
         task_id_max = env_config.task_id_max
         _num_seeds_env = os.getenv("ENV_EVAL_NUM_SEEDS")
-        _num_seeds_env = os.getenv("ENV_EVAL_NUM_SEEDS")
         if _num_seeds_env is not None and _num_seeds_env.strip() != "":
             num_seeds = int(_num_seeds_env)
         else:
