@@ -21,6 +21,7 @@ IS_PROD_ENV = NETUID == DEFAULT_NETUID
 VALIDATOR_DOCKER_IMAGE = "gradientsio/text-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_DIFFUSION = "gradientsio/image-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_ENV = "gradientsio/env-evaluator:basilica"
+VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica" #TODO make this gradientsio image
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
 
 
@@ -28,6 +29,7 @@ class EnvironmentName(str, Enum):
     GIN_RUMMY = "gin_rummy"
     LIARS_DICE = "liars_dice"
     LEDUC_POKER = "leduc_poker"
+    INTERCODE = "intercode"
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,15 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
             "mcts_max_simulations": 50,
             "mcts_num_rollouts": 1,
             "api_key": "dummy-key",
+        },
+    ),
+    EnvironmentName.INTERCODE: EnvironmentConfig(
+        task_id_min=1,
+        task_id_max=200,
+        num_seeds=20,
+        num_baseline_episodes=10,
+        env_image=None, #TODO Deal with this
+        eval_payload_extra={
         },
     ),
 }
