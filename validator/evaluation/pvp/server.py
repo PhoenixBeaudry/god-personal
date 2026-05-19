@@ -63,7 +63,7 @@ def _drain_stdout(proc: subprocess.Popen, name: str) -> None:
     def _reader() -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
-            logger.debug("[%s] %s", name, line.rstrip())
+            logger.info("[%s] %s", name, line.rstrip())
         proc.stdout.close()
 
     thread = threading.Thread(target=_reader, name=f"drain-{name}", daemon=True)

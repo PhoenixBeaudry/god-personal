@@ -74,9 +74,9 @@ def _resolve_spec(spec: PvPModelSpec, default_gpu: int, default_port: int) -> tu
 
 
 def _prepare_model(spec: PvPModelSpec, label: str) -> PreparedModel:
-    """Detect LoRA and build the right SGLang flags.
+    """Detect LoRA and build SGLang flags.
 
-    SGLang handles HF downloads internally — we just pass repo IDs.
+    Passes HF repo IDs to SGLang which handles downloads internally.
     """
     is_lora = check_for_lora(spec.repo, local_files_only=False)
     logger.info("Model %s: repo=%s is_lora=%s", label, spec.repo, is_lora)
