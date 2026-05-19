@@ -823,7 +823,7 @@ async def _run() -> None:
             num_seeds = env_config.num_seeds
 
         seed_generator = random.Random(base_seed)
-        eval_seeds = [seed_generator.randint(1, 1_000_000) for _ in range(num_seeds)]
+        task_ids_to_test = seed_generator.sample(range(task_id_min, task_id_max + 1), num_seeds)
         logger.info(
             "eval_setup config: env=%s num_seeds=%s task_id_range=(%s,%s) model_repo=%s original_model=%s "
             "eval_seed=%s temperature=%s",
@@ -917,21 +917,14 @@ async def _run() -> None:
         per_task_timeout = vcst.ENV_EVAL_TASK_TIMEOUT
         session_deadline = time.monotonic() + vcst.ENV_EVAL_SESSION_TIMEOUT
 
-        for idx, seed in enumerate(eval_seeds):
+        for idx, task_id in enumerate(task_ids_to_test):
             if time.monotonic() >= session_deadline:
                 logger.warning(
                     "eval_progress: session timeout reached after %s/%s tasks; stopping early",
-                    idx, len(eval_seeds),
+                    idx, len(task_ids_to_test),
                 )
                 break
-
-            rng = random.Random(seed)
-            # Clamp to [task_id_min, task_id_max] ∩ [1, total_global_tasks] so we never
-            # roll a task id outside the actual dataset.
-            lo = max(1, task_id_min)
-            hi = min(total_global_tasks, task_id_max)
-            global_task_id = rng.randint(lo, hi)
-            fs_version, local_idx = _map_task_id(global_task_id, ranges)
+            fs_version, local_idx = _map_task_id(task_id, ranges)
 
             start_t = time.time()
             try:
@@ -939,7 +932,7 @@ async def _run() -> None:
                 query = env.reset(local_idx)
                 logger.info(
                     "eval_progress %s/%s task_global=%s fs=%s local=%s query=%r",
-                    idx + 1, len(eval_seeds), global_task_id, fs_version, local_idx, query[:120],
+                    idx + 1, len(task_ids_to_test), task_id, fs_version, local_idx, query[:120],
                 )
                 reward = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -952,13 +945,13 @@ async def _run() -> None:
             except asyncio.TimeoutError:
                 logger.warning(
                     "eval_progress %s/%s task_global=%s timed out after %ss; score=0.0",
-                    idx + 1, len(eval_seeds), global_task_id, per_task_timeout,
+                    idx + 1, len(task_ids_to_test), task_id, per_task_timeout,
                 )
                 reward = 0.0
             except Exception as exc:
                 logger.warning(
                     "eval_progress %s/%s task_global=%s failed: %s; score=0.0",
-                    idx + 1, len(eval_seeds), global_task_id, exc,
+                    idx + 1, len(task_ids_to_test), task_id, exc,
                     exc_info=True,
                 )
                 reward = 0.0
@@ -966,7 +959,7 @@ async def _run() -> None:
             rewards.append(float(reward))
             logger.info(
                 "eval_progress %s/%s done task_global=%s fs=%s reward=%.4f elapsed=%.1fs",
-                idx + 1, len(eval_seeds), global_task_id, fs_version, reward, time.time() - start_t,
+                idx + 1, len(task_ids_to_test), task_id, fs_version, reward, time.time() - start_t,
             )
 
         if rewards:
