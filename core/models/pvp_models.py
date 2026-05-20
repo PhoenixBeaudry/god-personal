@@ -145,7 +145,7 @@ class ChatCompletionConfig(BaseModel):
     seed: int | None = Field(default=None, description="Random seed for reproducibility")
     max_tokens: int = Field(default=20, gt=0, description="Max tokens to generate per response")
     max_retries: int = Field(default=10, ge=0, description="Retry attempts on transient failures")
-    read_timeout: float = Field(default=30.0, gt=0, description="HTTP read timeout in seconds")
+    read_timeout: float = Field(default=10.0, gt=0, description="HTTP read timeout in seconds")
 
 
 class ChatResult(BaseModel):
