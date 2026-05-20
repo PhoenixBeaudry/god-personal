@@ -126,6 +126,28 @@ def _build_instances(
     return instances
 
 
+def _check_early_forfeit(
+    result: PvPEnvironmentResult,
+    consec_a_losses: int,
+    consec_b_losses: int,
+    remaining: int,
+    env_name: str,
+) -> bool:
+    """Award remaining games to the dominant player if the other lost too many in a row."""
+    limit = vcst.PVP_CONSECUTIVE_LOSS_FORFEIT
+    if consec_a_losses >= limit:
+        loser, winner_attr = "a", "model_b_wins"
+    elif consec_b_losses >= limit:
+        loser, winner_attr = "b", "model_a_wins"
+    else:
+        return False
+
+    logger.info("%s: model_%s lost %d in a row — forfeiting %d remaining games", env_name, loser, limit, remaining)
+    setattr(result, winner_attr, getattr(result, winner_attr) + remaining)
+    result.total_games += remaining
+    return True
+
+
 def _execute_matchup(
     env_name: EnvironmentName,
     instances: list[GameInstance],
@@ -137,9 +159,26 @@ def _execute_matchup(
     play = functools.partial(_play_game, player_a=player_a, player_b=player_b, agent=agent)
 
     result = PvPEnvironmentResult()
+    consec_a_losses = 0
+    consec_b_losses = 0
+
     for i, instance in enumerate(instances):
         outcome = play(instance)
         _tally(result, outcome)
+
+        if outcome == GameOutcome.LOSS:
+            consec_a_losses += 1
+            consec_b_losses = 0
+        elif outcome == GameOutcome.WIN:
+            consec_b_losses += 1
+            consec_a_losses = 0
+        else:
+            consec_a_losses = 0
+            consec_b_losses = 0
+
+        remaining = len(instances) - i - 1
+        if _check_early_forfeit(result, consec_a_losses, consec_b_losses, remaining, env_name.value):
+            break
 
         if (i + 1) % vcst.PVP_LOG_INTERVAL_GAMES == 0:
             logger.info(
