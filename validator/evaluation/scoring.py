@@ -506,6 +506,16 @@ async def process_miners_pool(
                 continue
 
             repo = f"{cts.RAYONLABS_HF_USERNAME}/{expected_name}"
+            try:
+                HfApi().repo_info(repo, timeout=30)
+            except Exception:
+                logger.warning(f"Repo {repo} not found for miner {miner.hotkey} — scoring 0")
+                results.append(
+                    _create_failed_miner_result(
+                        miner.hotkey, score_reason="Model repo not found on HuggingFace", task_type=task.task_type
+                    )
+                )
+                continue
             logger.info(f"Constructed repo {repo} for miner {miner.hotkey}")
             miner_repos[miner.hotkey] = repo
 
