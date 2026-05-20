@@ -318,6 +318,7 @@ MODEL_COPY_ENDPOINT = "https://huggingface.co/api/models/{source_repo}/duplicate
 # Environment evaluation constants
 ENV_EVAL_IMAGE = "diagonalge/env-eval:latest"
 ENV_EVAL_INTERCODE_IMAGE = "phoenixbeaudry/env-eval-intercode:basilica"
+ENV_EVAL_SWE_IMAGE = "phoenixbeaudry/env-eval-swe:basilica"
 ENV_SERVER_CMD_DEFAULT = "python -m uvicorn _affinetes.server:app --host 0.0.0.0 --port 8001 --workers 1 --loop asyncio"
 BASILICA_GPU_MODELS = ["A100"]
 BASILICA_SGLANG_MIN_GPU_MEMORY_GB = 80
@@ -380,6 +381,19 @@ ENVIRONMENTS = {
         # runs bash actions in-process.
         "env_image": None,
         "eval_payload_extra": {},
+    },
+    "swe": {
+        # SWE-Infinite task ids are zero-based in the standalone evaluator.
+        "task_id_range": (0, 7349),
+        "num_seeds": 10,
+        "env_image": "phoenixbeaudry/swe-infinite:context",
+        "task_timeout": 1800,
+        "max_concurrent_requests": 1,
+        "eval_payload_extra": {
+            "agent": "miniswe",
+            "max_iterations": 100,
+            "max_context_size": 32000,
+        },
     },
 }
 

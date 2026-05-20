@@ -280,6 +280,7 @@ async def run_evaluation_local_environment(
     num_seeds = env_config.get("num_seeds", vcst.ENV_EVAL_NUM_SEEDS)
     env_image = env_config["env_image"]
     env_payload_extra = env_config.get("eval_payload_extra", {})
+    task_timeout = env_config.get("task_timeout", vcst.ENV_EVAL_TASK_TIMEOUT)
 
     base_seed = eval_seed if eval_seed is not None else vcst.ENV_EVAL_DEFAULT_SEED
     seed_generator = random.Random(base_seed)
@@ -392,6 +393,18 @@ async def run_evaluation_local_environment(
             env_logger.info(f"SGLang ready at {sglang_host_url}")
 
             env_logger.info(f"Starting environment container: {env_container_name}")
+            env_container_kwargs = {}
+            if env_name == "swe":
+                env_container_kwargs["volumes"] = {
+                    "/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"},
+                }
+                env_container_kwargs["environment"] = {
+                    "DOCKER_HUB_USERNAME": os.getenv("DOCKER_HUB_USERNAME", ""),
+                    "DOCKER_HUB_TOKEN": os.getenv("DOCKER_HUB_TOKEN", ""),
+                    "CHUTES_API_KEY": os.getenv("CHUTES_API_KEY", ""),
+                    "R2_BASE_URL": os.getenv("R2_BASE_URL", ""),
+                    "R2_PREFIX": os.getenv("R2_PREFIX", ""),
+                }
             env_container = await asyncio.to_thread(
                 docker_client.containers.run,
                 env_image,
@@ -400,6 +413,7 @@ async def run_evaluation_local_environment(
                 network=vcst.LOCAL_ENV_DOCKER_NETWORK,
                 ports={"8000/tcp": local_env_server_port},
                 remove=False,
+                **env_container_kwargs,
             )
             containers["env"] = env_container
 
@@ -418,6 +432,7 @@ async def run_evaluation_local_environment(
                 inference_model_name,
                 task_id_min,
                 env_payload_extra=env_payload_extra,
+                task_timeout=task_timeout,
             )
             evaluation_results[repo] = {"is_finetune": True, "eval_loss": avg_score}
         except Exception as e:
@@ -453,6 +468,7 @@ async def _run_environment_evaluation(
     inference_model_name: str,
     task_id_min: int = 0,
     env_payload_extra: dict | None = None,
+    task_timeout: int = vcst.ENV_EVAL_TASK_TIMEOUT,
 ) -> float:
     eval_list = []
     for seed in eval_seeds:
@@ -481,7 +497,7 @@ async def _run_environment_evaluation(
             start_ts = time.time()
             try:
                 env_logger.info(f"[{task_idx + 1}/{num_eval_samples}] Seed: {seed}, Task ID: {task_id}...")
-                timeout = aiohttp.ClientTimeout(total=vcst.ENV_EVAL_TASK_TIMEOUT)
+                timeout = aiohttp.ClientTimeout(total=task_timeout)
                 async with session.post(
                     f"{env_url}/evaluate",
                     json=payload,

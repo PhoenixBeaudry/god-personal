@@ -1,9 +1,11 @@
 import os
-import docker
-import time
-import requests
 import random
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import docker
+import requests
 from huggingface_hub import snapshot_download
 
 # --- Model Configuration ---
@@ -28,7 +30,7 @@ NUM_ENV_SERVERS = 1
 ##############################################################################################
 
 
-client = docker.from_env()
+client = None
 
 SGLANG_IMAGE = "lmsysorg/sglang:latest"
 ENV_IMAGE = "phoenixbeaudry/swe-infinite:context"
@@ -37,6 +39,10 @@ SGLANG_PORT = 30000
 HF_CACHE_DIR = "/mnt/hf_cache"
 
 def run_evaluation(base_seed):
+    global client
+    if client is None:
+        client = docker.from_env()
+
     RANDOM_SEED = base_seed
     containers = {}
     avg_score = 0.0
@@ -282,6 +288,11 @@ def run_evaluation(base_seed):
 
 
 if __name__ == "__main__":
+    if os.getenv("BASILICA_EVAL_MODE") == "1":
+        from validator.evaluation.eval_swe import main as eval_swe_main
+
+        sys.exit(eval_swe_main())
+
     scores = []
     times = []
     for i in range(1):
