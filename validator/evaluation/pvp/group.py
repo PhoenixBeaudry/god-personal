@@ -26,8 +26,11 @@ from core.models.pvp_models import (
     PvPPairResult,
 )
 from validator.core import constants as vcst
+from huggingface_hub import HfApi
 from validator.evaluation.eval_environment import _wait_for_health
 from validator.evaluation.utils import check_for_lora, stop_process
+
+hf_api = HfApi()
 from validator.evaluation.pvp.chat import chat_completion, create_client
 from validator.evaluation.pvp.game_runner import Player, run_matchup
 from validator.evaluation.pvp.server import _drain_stdout
@@ -43,10 +46,11 @@ def run_group_evaluation(config: PvPEvalConfig) -> PvPGroupResults:
     start_time = time.time()
     base_model = config.base_model
 
-    lora_names = _detect_lora_names(config.models)
+    lora_names, missing_models = _detect_lora_names(config.models)
+    available_models = [m for m in config.models if m.repo in lora_names]
 
-    full_weight_specs = [m for m in config.models if not lora_names[m.repo]]
-    lora_specs = [m for m in config.models if lora_names[m.repo]]
+    full_weight_specs = [m for m in available_models if not lora_names[m.repo]]
+    lora_specs = [m for m in available_models if lora_names[m.repo]]
 
     full_weight_fallbacks: FullWeightContestants | None = None
     if full_weight_specs:
@@ -120,6 +124,26 @@ def run_group_evaluation(config: PvPEvalConfig) -> PvPGroupResults:
                 results=env_results,
             ))
 
+        # Missing models auto-lose all matchups against available models
+        for missing in missing_models:
+            for available in available_models:
+                num_games = sum(mc.num_games * 2 for mc in config.matchups.values())
+                env_results = {
+                    env_name: PvPEnvironmentResult(
+                        total_games=mc.num_games * 2,
+                        model_a_wins=0,
+                        model_b_wins=mc.num_games * 2,
+                        draws=0,
+                    )
+                    for env_name, mc in config.matchups.items()
+                }
+                pair_results.append(PvPPairResult(
+                    hotkey_a=missing.hotkey,
+                    hotkey_b=available.hotkey,
+                    results=env_results,
+                ))
+                logger.info("Auto-loss: %s (missing) vs %s — all games awarded to opponent", missing.hotkey, available.hotkey)
+
         return PvPGroupResults(
             base_model=base_model,
             hotkeys=[m.hotkey for m in config.models],
@@ -140,17 +164,31 @@ def run_group_evaluation(config: PvPEvalConfig) -> PvPGroupResults:
         stop_process(sglang_b, "sglang-b")
 
 
-def _detect_lora_names(models: list[PvPGroupModelSpec]) -> dict[str, str]:
-    """Detect LoRA vs full weights and assign adapter names.
+def _repo_exists(repo: str, timeout: float = 30.0) -> bool:
+    """Check if a HuggingFace repo exists and is accessible."""
+    try:
+        hf_api.repo_info(repo, timeout=timeout)
+        return True
+    except Exception:
+        return False
 
-    Returns {repo: lora_name}. Full-weight models get empty string.
+
+def _detect_lora_names(models: list[PvPGroupModelSpec]) -> tuple[dict[str, str], list[PvPGroupModelSpec]]:
+    """Detect LoRA vs full weights and filter out missing repos.
+
+    Returns (lora_names, missing_models). Missing models get 0 scores.
     """
     names: dict[str, str] = {}
+    missing: list[PvPGroupModelSpec] = []
     for i, spec in enumerate(models):
+        if not _repo_exists(spec.repo):
+            logger.warning("Model %s repo not found: %s — will receive 0 scores", spec.hotkey, spec.repo)
+            missing.append(spec)
+            continue
         is_lora = check_for_lora(spec.repo, local_files_only=False)
         names[spec.repo] = f"lora_{i}" if is_lora else ""
         logger.info("Model %s: is_lora=%s, adapter_name=%s", spec.hotkey, is_lora, names[spec.repo] or "(full weights)")
-    return names
+    return names, missing
 
 
 def _build_multi_lora_args(lora_names: dict[str, str]) -> str:
