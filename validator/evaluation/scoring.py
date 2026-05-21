@@ -696,47 +696,64 @@ async def _run_full_weight_fallback(
     lora_hotkeys = [h for h in group_results.hotkeys if h not in set(fallback.hotkeys)]
     fw_repo_by_hotkey = dict(zip(fallback.hotkeys, fallback.repos))
 
-    tasks = []
+    # Build all pairings we need to evaluate
+    pending: list[PvPPairResult] = []  # reuse as containers for hotkey info
+    pair_args: dict[str, dict] = {}  # keyed by "hk_a:hk_b"
 
     for fw_hotkey in fallback.hotkeys:
         fw_repo = fw_repo_by_hotkey[fw_hotkey]
-
         for lora_hotkey in lora_hotkeys:
-            lora_repo = miner_repos[lora_hotkey]
-            logger.info(f"Full-weight pair (parallel): {fw_hotkey[:8]} vs {lora_hotkey[:8]}")
-            tasks.append(run_evaluation_pvp_pair(
-                model_a_repo=fw_repo, model_b_repo=lora_repo,
+            key = f"{fw_hotkey}:{lora_hotkey}"
+            pair_args[key] = dict(
+                model_a_repo=fw_repo, model_b_repo=miner_repos[lora_hotkey],
                 hotkey_a=fw_hotkey, hotkey_b=lora_hotkey,
-                base_model=base_model, environment_names=environment_names, seed=seed,
-            ))
-
+            )
         for other_fw_hotkey in fallback.hotkeys:
             if other_fw_hotkey <= fw_hotkey:
                 continue
-            other_fw_repo = fw_repo_by_hotkey[other_fw_hotkey]
-            logger.info(f"Full-weight pair (parallel): {fw_hotkey[:8]} vs {other_fw_hotkey[:8]}")
-            tasks.append(run_evaluation_pvp_pair(
-                model_a_repo=fw_repo, model_b_repo=other_fw_repo,
+            key = f"{fw_hotkey}:{other_fw_hotkey}"
+            pair_args[key] = dict(
+                model_a_repo=fw_repo, model_b_repo=fw_repo_by_hotkey[other_fw_hotkey],
                 hotkey_a=fw_hotkey, hotkey_b=other_fw_hotkey,
-                base_model=base_model, environment_names=environment_names, seed=seed,
-            ))
+            )
 
     max_concurrent = 2
-    logger.info(f"Dispatching {len(tasks)} pair evals, {max_concurrent} at a time")
+    max_rounds = 3
     semaphore = asyncio.Semaphore(max_concurrent)
-
-    async def _run_with_limit(coro):
-        async with semaphore:
-            return await coro
-
-    results = await asyncio.gather(*[_run_with_limit(t) for t in tasks], return_exceptions=True)
-
     all_pair_results: list[PvPPairResult] = []
-    for r in results:
-        if isinstance(r, Exception):
-            logger.error(f"Pair eval failed: {r}")
-        else:
-            all_pair_results.extend(r.pair_results)
+    remaining_keys = list(pair_args.keys())
+
+    async def _run(key: str):
+        async with semaphore:
+            return await run_evaluation_pvp_pair(
+                **pair_args[key], base_model=base_model,
+                environment_names=environment_names, seed=seed,
+            )
+
+    for round_num in range(1, max_rounds + 1):
+        if not remaining_keys:
+            break
+        logger.info(f"Pair eval round {round_num}/{max_rounds}: {len(remaining_keys)} pairs, {max_concurrent} concurrent")
+
+        results = await asyncio.gather(
+            *[_run(k) for k in remaining_keys], return_exceptions=True,
+        )
+
+        failed_keys = []
+        for key, result in zip(remaining_keys, results):
+            if isinstance(result, Exception):
+                logger.error(f"Pair {key} failed: {result}")
+                failed_keys.append(key)
+            else:
+                all_pair_results.extend(result.pair_results)
+
+        remaining_keys = failed_keys
+        if remaining_keys and round_num < max_rounds:
+            logger.info(f"{len(remaining_keys)} pairs failed, retrying in 60s")
+            await asyncio.sleep(60)
+
+    if remaining_keys:
+        logger.error(f"{len(remaining_keys)} pairs failed after {max_rounds} rounds: {remaining_keys}")
 
     return all_pair_results
 
