@@ -188,6 +188,12 @@ class PvPEvalResults(PvPBaseModel):
 
 
 
+def _canonical_pair_key(hotkey_a: str, hotkey_b: str) -> str:
+    """Sorted pair key so order doesn't matter."""
+    a, b = sorted([hotkey_a, hotkey_b])
+    return f"{a}:{b}"
+
+
 class PvPPairResult(PvPBaseModel):
     """Result for one pair within a group evaluation."""
 
@@ -197,7 +203,7 @@ class PvPPairResult(PvPBaseModel):
 
     @property
     def pair_key(self) -> str:
-        return f"{self.hotkey_a}:{self.hotkey_b}"
+        return _canonical_pair_key(self.hotkey_a, self.hotkey_b)
 
 
 class PvPPairDbRow(BaseModel):
@@ -216,7 +222,7 @@ class PvPPairDbRow(BaseModel):
 
     @property
     def pair_key(self) -> str:
-        return f"{self.hotkey_a}:{self.hotkey_b}"
+        return _canonical_pair_key(self.hotkey_a, self.hotkey_b)
 
     @property
     def is_complete(self) -> bool:

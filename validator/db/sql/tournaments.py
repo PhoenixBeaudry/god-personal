@@ -1425,6 +1425,7 @@ async def ensure_pvp_pairs_exist(
     """Create pending rows for all required pair+env combos if they don't exist."""
     async with await psql_db.connection() as connection:
         for pair in pairs:
+            hk_a, hk_b = sorted([pair.hotkey_a, pair.hotkey_b])
             for env in environment_names:
                 await connection.execute(f"""
                     INSERT INTO {cst.PVP_PAIR_RESULTS_TABLE}
@@ -1433,7 +1434,7 @@ async def ensure_pvp_pairs_exist(
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT ({cst.TASK_ID}, {cst.PVP_HOTKEY_A}, {cst.PVP_HOTKEY_B},
                                  {cst.PVP_ENVIRONMENT_NAME}) DO NOTHING
-                """, task_id, pair.hotkey_a, pair.hotkey_b, env, cst.PVP_STATUS_PENDING)
+                """, task_id, hk_a, hk_b, env, cst.PVP_STATUS_PENDING)
 
 
 async def save_pvp_pair_result(
@@ -1443,7 +1444,11 @@ async def save_pvp_pair_result(
     env_result: PvPEnvironmentResult,
     psql_db: PSQLDB,
 ) -> None:
-    """Mark a pair+env as complete with results."""
+    """Mark a pair+env as complete with results. Stores in sorted hotkey order."""
+    hk_a, hk_b = sorted([result.hotkey_a, result.hotkey_b])
+    swapped = hk_a != result.hotkey_a
+    a_wins = env_result.model_b_wins if swapped else env_result.model_a_wins
+    b_wins = env_result.model_a_wins if swapped else env_result.model_b_wins
     async with await psql_db.connection() as connection:
         await connection.execute(f"""
             UPDATE {cst.PVP_PAIR_RESULTS_TABLE}
@@ -1452,8 +1457,8 @@ async def save_pvp_pair_result(
                 {cst.STATUS} = $9, {cst.UPDATED_AT} = CURRENT_TIMESTAMP
             WHERE {cst.TASK_ID} = $1 AND {cst.PVP_HOTKEY_A} = $2
                 AND {cst.PVP_HOTKEY_B} = $3 AND {cst.PVP_ENVIRONMENT_NAME} = $4
-        """, task_id, result.hotkey_a, result.hotkey_b, environment_name,
-            env_result.model_a_wins, env_result.model_b_wins, env_result.draws,
+        """, task_id, hk_a, hk_b, environment_name,
+            a_wins, b_wins, env_result.draws,
             env_result.total_games, cst.PVP_STATUS_COMPLETE)
 
 
@@ -1461,6 +1466,7 @@ async def increment_pvp_pair_attempts(
     task_id: str, hotkey_a: str, hotkey_b: str, psql_db: PSQLDB,
 ) -> None:
     """Increment attempt count for all envs of a pair that aren't complete."""
+    hk_a, hk_b = sorted([hotkey_a, hotkey_b])
     async with await psql_db.connection() as connection:
         await connection.execute(f"""
             UPDATE {cst.PVP_PAIR_RESULTS_TABLE}
@@ -1468,7 +1474,7 @@ async def increment_pvp_pair_attempts(
                 {cst.UPDATED_AT} = CURRENT_TIMESTAMP
             WHERE {cst.TASK_ID} = $1 AND {cst.PVP_HOTKEY_A} = $2
                 AND {cst.PVP_HOTKEY_B} = $3 AND {cst.STATUS} != $4
-        """, task_id, hotkey_a, hotkey_b, cst.PVP_STATUS_COMPLETE)
+        """, task_id, hk_a, hk_b, cst.PVP_STATUS_COMPLETE)
 
 
 async def get_pvp_pair_results(task_id: str, psql_db: PSQLDB) -> list[PvPPairDbRow]:

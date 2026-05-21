@@ -12,9 +12,9 @@ from core import constants as core_cst
 from core.models.payload_models import DiffusionLosses
 from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
-from core.models.pvp_models import PvPEnvironmentResult, PvPGroupModelSpec, PvPGroupResults, PvPIncompleteError, PvPPairDbRow, PvPPairResult
+from core.models.pvp_models import PvPEnvironmentResult, PvPGroupModelSpec, PvPGroupResults, PvPIncompleteError, PvPPairDbRow, PvPPairResult, _canonical_pair_key
 
-PairKey = str  # "hotkey_a:hotkey_b"
+PairKey = str  # sorted "hotkey_a:hotkey_b"
 from core.models.scoring_models import EvalHotkeyResults
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
@@ -754,12 +754,11 @@ async def _run_full_weight_fallback(
     lora_hotkeys = [h for h in group_results.hotkeys if h not in set(fallback.hotkeys)]
     fw_repo_by_hotkey = dict(zip(fallback.hotkeys, fallback.repos))
 
-    # Build all required pair keys
-    pair_args: dict[str, dict] = {}
+    pair_args: dict[PairKey, dict] = {}
     for fw_hotkey in fallback.hotkeys:
         fw_repo = fw_repo_by_hotkey[fw_hotkey]
         for lora_hotkey in lora_hotkeys:
-            key = f"{fw_hotkey}:{lora_hotkey}"
+            key = _canonical_pair_key(fw_hotkey, lora_hotkey)
             pair_args[key] = dict(
                 model_a_repo=fw_repo, model_b_repo=miner_repos[lora_hotkey],
                 hotkey_a=fw_hotkey, hotkey_b=lora_hotkey,
@@ -767,7 +766,7 @@ async def _run_full_weight_fallback(
         for other_fw_hotkey in fallback.hotkeys:
             if other_fw_hotkey <= fw_hotkey:
                 continue
-            key = f"{fw_hotkey}:{other_fw_hotkey}"
+            key = _canonical_pair_key(fw_hotkey, other_fw_hotkey)
             pair_args[key] = dict(
                 model_a_repo=fw_repo, model_b_repo=fw_repo_by_hotkey[other_fw_hotkey],
                 hotkey_a=fw_hotkey, hotkey_b=other_fw_hotkey,
