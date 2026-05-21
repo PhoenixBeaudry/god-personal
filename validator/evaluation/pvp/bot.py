@@ -97,6 +97,9 @@ class LLMBot(pyspiel.Bot):
                 self._player_id, current,
             )
         legal_actions = state.legal_actions(current)
+        if not legal_actions:
+            logger.error("Empty legal_actions for player %d — likely SIGALRM interrupted C call, forfeiting", current)
+            raise TurnTimeoutError(self._player_id)
         user_prompt = self._agent.generate_user_prompt(state, self._player_id, legal_actions)
         self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))
 
