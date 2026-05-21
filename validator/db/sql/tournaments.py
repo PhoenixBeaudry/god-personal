@@ -4,6 +4,7 @@ from datetime import timedelta
 from datetime import timezone
 
 import validator.db.constants as cst
+from core.models.pvp_models import PvPEnvironmentResult, PvPPairDbRow, PvPPairResult
 from core.models.tournament_models import GroupRound
 from core.models.tournament_models import HotkeyTaskParticipation
 from core.models.tournament_models import TaskTrainingAssignment
@@ -1417,7 +1418,7 @@ async def get_weekly_task_participation_data(psql_db: PSQLDB) -> list[HotkeyTask
 
 async def ensure_pvp_pairs_exist(
     task_id: str,
-    pairs: list[dict],
+    pairs: list[PvPPairResult],
     environment_names: list[str],
     psql_db: PSQLDB,
 ) -> None:
@@ -1425,59 +1426,67 @@ async def ensure_pvp_pairs_exist(
     async with await psql_db.connection() as connection:
         for pair in pairs:
             for env in environment_names:
-                await connection.execute("""
-                    INSERT INTO pvp_pair_results (task_id, hotkey_a, hotkey_b, environment_name, status)
-                    VALUES ($1, $2, $3, $4, 'pending')
-                    ON CONFLICT (task_id, hotkey_a, hotkey_b, environment_name) DO NOTHING
-                """, task_id, pair["hotkey_a"], pair["hotkey_b"], env)
+                await connection.execute(f"""
+                    INSERT INTO {cst.PVP_PAIR_RESULTS_TABLE}
+                        ({cst.TASK_ID}, {cst.PVP_HOTKEY_A}, {cst.PVP_HOTKEY_B},
+                         {cst.PVP_ENVIRONMENT_NAME}, {cst.STATUS})
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT ({cst.TASK_ID}, {cst.PVP_HOTKEY_A}, {cst.PVP_HOTKEY_B},
+                                 {cst.PVP_ENVIRONMENT_NAME}) DO NOTHING
+                """, task_id, pair.hotkey_a, pair.hotkey_b, env, cst.PVP_STATUS_PENDING)
 
 
 async def save_pvp_pair_result(
     task_id: str,
-    hotkey_a: str,
-    hotkey_b: str,
+    result: PvPPairResult,
     environment_name: str,
-    model_a_wins: int,
-    model_b_wins: int,
-    draws: int,
-    total_games: int,
+    env_result: PvPEnvironmentResult,
     psql_db: PSQLDB,
 ) -> None:
     """Mark a pair+env as complete with results."""
     async with await psql_db.connection() as connection:
-        await connection.execute("""
-            UPDATE pvp_pair_results
-            SET model_a_wins = $5, model_b_wins = $6, draws = $7, total_games = $8,
-                status = 'complete', updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = $1 AND hotkey_a = $2 AND hotkey_b = $3 AND environment_name = $4
-        """, task_id, hotkey_a, hotkey_b, environment_name, model_a_wins, model_b_wins, draws, total_games)
+        await connection.execute(f"""
+            UPDATE {cst.PVP_PAIR_RESULTS_TABLE}
+            SET {cst.PVP_MODEL_A_WINS} = $5, {cst.PVP_MODEL_B_WINS} = $6,
+                {cst.PVP_DRAWS} = $7, {cst.PVP_TOTAL_GAMES} = $8,
+                {cst.STATUS} = $9, {cst.UPDATED_AT} = CURRENT_TIMESTAMP
+            WHERE {cst.TASK_ID} = $1 AND {cst.PVP_HOTKEY_A} = $2
+                AND {cst.PVP_HOTKEY_B} = $3 AND {cst.PVP_ENVIRONMENT_NAME} = $4
+        """, task_id, result.hotkey_a, result.hotkey_b, environment_name,
+            env_result.model_a_wins, env_result.model_b_wins, env_result.draws,
+            env_result.total_games, cst.PVP_STATUS_COMPLETE)
 
 
 async def increment_pvp_pair_attempts(
     task_id: str, hotkey_a: str, hotkey_b: str, psql_db: PSQLDB,
 ) -> None:
-    """Increment attempt count for all envs of a pair."""
+    """Increment attempt count for all envs of a pair that aren't complete."""
     async with await psql_db.connection() as connection:
-        await connection.execute("""
-            UPDATE pvp_pair_results
-            SET n_attempts = n_attempts + 1, updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = $1 AND hotkey_a = $2 AND hotkey_b = $3 AND status != 'complete'
-        """, task_id, hotkey_a, hotkey_b)
+        await connection.execute(f"""
+            UPDATE {cst.PVP_PAIR_RESULTS_TABLE}
+            SET {cst.PVP_N_ATTEMPTS} = {cst.PVP_N_ATTEMPTS} + 1,
+                {cst.UPDATED_AT} = CURRENT_TIMESTAMP
+            WHERE {cst.TASK_ID} = $1 AND {cst.PVP_HOTKEY_A} = $2
+                AND {cst.PVP_HOTKEY_B} = $3 AND {cst.STATUS} != $4
+        """, task_id, hotkey_a, hotkey_b, cst.PVP_STATUS_COMPLETE)
 
 
-async def get_pvp_pair_results(task_id: str, psql_db: PSQLDB) -> list[dict]:
-    """Get all PvP pair results for a task."""
+async def get_pvp_pair_results(task_id: str, psql_db: PSQLDB) -> list[PvPPairDbRow]:
+    """Get all PvP pair result rows for a task."""
     async with await psql_db.connection() as connection:
-        rows = await connection.fetch("""
-            SELECT hotkey_a, hotkey_b, environment_name, model_a_wins, model_b_wins,
-                   draws, total_games, status, n_attempts
-            FROM pvp_pair_results
-            WHERE task_id = $1
+        rows = await connection.fetch(f"""
+            SELECT {cst.PVP_HOTKEY_A}, {cst.PVP_HOTKEY_B}, {cst.PVP_ENVIRONMENT_NAME},
+                   {cst.PVP_MODEL_A_WINS}, {cst.PVP_MODEL_B_WINS}, {cst.PVP_DRAWS},
+                   {cst.PVP_TOTAL_GAMES}, {cst.STATUS}, {cst.PVP_N_ATTEMPTS}
+            FROM {cst.PVP_PAIR_RESULTS_TABLE}
+            WHERE {cst.TASK_ID} = $1
         """, task_id)
-        return [dict(r) for r in rows]
+        return [PvPPairDbRow(task_id=task_id, **dict(r)) for r in rows]
 
 
 async def delete_pvp_pair_results(task_id: str, psql_db: PSQLDB) -> None:
     """Delete all PvP pair results for a task (for full re-eval)."""
     async with await psql_db.connection() as connection:
-        await connection.execute("DELETE FROM pvp_pair_results WHERE task_id = $1", task_id)
+        await connection.execute(
+            f"DELETE FROM {cst.PVP_PAIR_RESULTS_TABLE} WHERE {cst.TASK_ID} = $1", task_id
+        )

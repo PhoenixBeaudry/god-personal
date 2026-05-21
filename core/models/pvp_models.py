@@ -195,6 +195,33 @@ class PvPPairResult(PvPBaseModel):
     hotkey_b: str
     results: dict[EnvironmentName, PvPEnvironmentResult]
 
+    @property
+    def pair_key(self) -> str:
+        return f"{self.hotkey_a}:{self.hotkey_b}"
+
+
+class PvPPairDbRow(BaseModel):
+    """A persisted PvP pair result row from the database."""
+
+    task_id: str
+    hotkey_a: str
+    hotkey_b: str
+    environment_name: str
+    model_a_wins: int = 0
+    model_b_wins: int = 0
+    draws: int = 0
+    total_games: int = 0
+    n_attempts: int = 0
+    status: str = "pending"
+
+    @property
+    def pair_key(self) -> str:
+        return f"{self.hotkey_a}:{self.hotkey_b}"
+
+    @property
+    def is_complete(self) -> bool:
+        return self.status == "complete"
+
 
 class FullWeightContestants(BaseModel):
     """Signal that some contestants submitted full weights instead of LoRA.

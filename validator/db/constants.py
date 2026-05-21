@@ -38,6 +38,18 @@ BENCHMARK_TASK_COPIES_TABLE = "benchmark_task_copies"
 TOURNAMENT_TASK_HOTKEY_TRAININGS_TABLE = "tournament_task_hotkey_trainings"
 PVP_PAIR_RESULTS_TABLE = "pvp_pair_results"
 
+# PvP Pair Results Table Columns
+PVP_HOTKEY_A = "hotkey_a"
+PVP_HOTKEY_B = "hotkey_b"
+PVP_ENVIRONMENT_NAME = "environment_name"
+PVP_MODEL_A_WINS = "model_a_wins"
+PVP_MODEL_B_WINS = "model_b_wins"
+PVP_DRAWS = "draws"
+PVP_TOTAL_GAMES = "total_games"
+PVP_N_ATTEMPTS = "n_attempts"
+PVP_STATUS_PENDING = "pending"
+PVP_STATUS_COMPLETE = "complete"
+
 # Tournament Task Hotkey Trainings Table Columns
 PRIORITY = "priority"
 
