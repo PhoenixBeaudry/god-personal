@@ -799,33 +799,29 @@ async def _run_full_weight_fallback(
         logger.info("All pairs complete in DB")
         return all_pair_results
 
-    # Fire off all missing pairs — semaphore limits concurrency, each persists independently
-    max_concurrent = 2
-    semaphore = asyncio.Semaphore(max_concurrent)
-
+    # Fire off all missing pairs — each persists independently on completion
     async def _run_and_persist(key: str):
         hk_a, hk_b = key.split(":")
         await tournament_sql.increment_pvp_pair_attempts(str(task_id), hk_a, hk_b, psql_db)
-        async with semaphore:
-            try:
-                pair_group = await run_evaluation_pvp_pair(
-                    **pair_args[key], base_model=base_model,
-                    environment_names=environment_names, seed=seed,
-                )
-                for pair_result in pair_group.pair_results:
-                    for env_name, env_result in pair_result.results.items():
-                        await tournament_sql.save_pvp_pair_result(
-                            task_id=str(task_id),
-                            result=pair_result,
-                            environment_name=env_name.value,
-                            env_result=env_result,
-                            psql_db=psql_db,
-                        )
-                logger.info(f"Pair {key} completed and persisted")
-            except Exception as e:
-                logger.error(f"Pair {key} failed: {e}")
+        try:
+            pair_group = await run_evaluation_pvp_pair(
+                **pair_args[key], base_model=base_model,
+                environment_names=environment_names, seed=seed,
+            )
+            for pair_result in pair_group.pair_results:
+                for env_name, env_result in pair_result.results.items():
+                    await tournament_sql.save_pvp_pair_result(
+                        task_id=str(task_id),
+                        result=pair_result,
+                        environment_name=env_name.value,
+                        env_result=env_result,
+                        psql_db=psql_db,
+                    )
+            logger.info(f"Pair {key} completed and persisted")
+        except Exception as e:
+            logger.error(f"Pair {key} failed: {e}")
 
-    logger.info(f"Dispatching {len(remaining_keys)} pairs, {max_concurrent} concurrent")
+    logger.info(f"Dispatching {len(remaining_keys)} pairs in parallel")
     await asyncio.gather(*[_run_and_persist(k) for k in remaining_keys])
 
     # Re-read DB and build final results
