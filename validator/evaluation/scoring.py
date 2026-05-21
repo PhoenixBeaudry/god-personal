@@ -721,8 +721,15 @@ async def _run_full_weight_fallback(
                 base_model=base_model, environment_names=environment_names, seed=seed,
             ))
 
-    logger.info(f"Dispatching {len(tasks)} pair evals in parallel")
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    max_concurrent = 2
+    logger.info(f"Dispatching {len(tasks)} pair evals, {max_concurrent} at a time")
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def _run_with_limit(coro):
+        async with semaphore:
+            return await coro
+
+    results = await asyncio.gather(*[_run_with_limit(t) for t in tasks], return_exceptions=True)
 
     all_pair_results: list[PvPPairResult] = []
     for r in results:
