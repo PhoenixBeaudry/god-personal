@@ -24,7 +24,7 @@ VALIDATOR_DOCKER_IMAGE_ENV = "gradientsio/env-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica"  # TODO make this gradientsio image
 VALIDATOR_DOCKER_IMAGE_SWE = "phoenixbeaudry/env-eval-swe:basilica"  # TODO make this gradientsio image
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
-SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:context"
+SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:context" # TODO rebuild this from current affinetes head
 
 
 class EnvironmentName(str, Enum):
