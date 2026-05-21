@@ -21,8 +21,10 @@ IS_PROD_ENV = NETUID == DEFAULT_NETUID
 VALIDATOR_DOCKER_IMAGE = "gradientsio/text-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_DIFFUSION = "gradientsio/image-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_ENV = "gradientsio/env-evaluator:basilica"
-VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica" #TODO make this gradientsio image
+VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica"  # TODO make this gradientsio image
+VALIDATOR_DOCKER_IMAGE_SWE = "phoenixbeaudry/env-eval-swe:basilica"  # TODO make this gradientsio image
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
+SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:context"
 
 
 class EnvironmentName(str, Enum):
@@ -30,6 +32,7 @@ class EnvironmentName(str, Enum):
     LIARS_DICE = "liars_dice"
     LEDUC_POKER = "leduc_poker"
     INTERCODE = "intercode"
+    SWE = "swe"
 
 
 @dataclass(frozen=True)
@@ -38,8 +41,10 @@ class EnvironmentConfig:
     task_id_max: int
     num_seeds: int
     num_baseline_episodes: int
-    env_image: str
+    env_image: str | None
     eval_payload_extra: dict
+    task_timeout: int | None = None
+    max_concurrent_requests: int | None = None
 
 
 ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
@@ -87,9 +92,21 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=200,
         num_seeds=200,
         num_baseline_episodes=10,
-        env_image=None, #TODO Deal with this
+        env_image=None,  # TODO Deal with this
+        eval_payload_extra={},
+    ),
+    EnvironmentName.SWE: EnvironmentConfig(
+        task_id_min=0,
+        task_id_max=7349,
+        num_seeds=10,
+        num_baseline_episodes=10,
+        env_image=SWE_INFINITE_DOCKER_IMAGE,
         eval_payload_extra={
+            "agent": "miniswe",
+            "max_iterations": 100,
         },
+        task_timeout=1800,
+        max_concurrent_requests=1,
     ),
 }
 

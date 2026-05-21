@@ -52,6 +52,14 @@ def _is_intercode_environment(dataset_type: EnvironmentDatasetType) -> bool:
     )
 
 
+def _is_swe_environment(dataset_type: EnvironmentDatasetType) -> bool:
+    env_name = getattr(dataset_type, "environment_name", None)
+    return (
+        env_name == cst.EnvironmentName.SWE
+        or getattr(env_name, "value", env_name) == cst.EnvironmentName.SWE.value
+    )
+
+
 async def cleanup_resources(client):
     """Clean up Docker resources including containers, images, and volumes."""
     try:
@@ -128,6 +136,15 @@ async def run_evaluation_docker_text(
         gpu_id = gpu_ids[0] if gpu_ids else 0
         if _is_intercode_environment(dataset_type):
             return await run_evaluation_local_intercode(
+                models,
+                original_model,
+                dataset_type,
+                file_format=file_format,
+                gpu_id=gpu_id,
+                eval_seed=eval_seed,
+            )
+        if _is_swe_environment(dataset_type):
+            return await run_evaluation_local_swe(
                 models,
                 original_model,
                 dataset_type,
@@ -623,6 +640,110 @@ async def run_evaluation_local_intercode(
         client.close()
 
     logger.info(f"Local InterCode evaluation results: {evaluation_results}")
+    return process_evaluation_results(evaluation_results, is_image=False)
+
+
+async def run_evaluation_local_swe(
+    models: list[str],
+    original_model: str,
+    dataset_type: EnvironmentDatasetType,
+    file_format: FileFormat = FileFormat.JSON,
+    gpu_id: int = 0,
+    eval_seed: int | None = None,
+) -> DockerEvaluationResults:
+    logger.info(f"Starting local Docker SWE evaluation for {len(models)} repos: {models}")
+    if not _is_swe_environment(dataset_type):
+        actual_env_name = dataset_type.environment_name
+        raise ValueError(f"run_evaluation_local_swe requires environment_name='swe', got {actual_env_name!r}")
+
+    base_seed = eval_seed if eval_seed is not None else vcst.ENV_EVAL_DEFAULT_SEED
+    temperature = float(os.getenv("ENV_EVAL_TEMPERATURE", str(vcst.ENV_EVAL_TEMPERATURE)))
+    dataset_type_str = dataset_type.model_dump_json()
+    cache_dir = os.path.expanduser(cst.CACHE_DIR_HUB)
+    volume_bindings = {
+        cache_dir: {"bind": "/root/.cache/huggingface/hub", "mode": "rw"},
+    }
+    docker_sock = "/var/run/docker.sock"
+    if os.path.exists(docker_sock):
+        volume_bindings[docker_sock] = {"bind": docker_sock, "mode": "rw"}
+
+    command = ["python", "-m", "validator.evaluation.eval_swe"]
+    base_environment = {
+        "ORIGINAL_MODEL": original_model,
+        "DATASET_TYPE": dataset_type_str,
+        "FILE_FORMAT": file_format.value,
+        "TRANSFORMERS_ALLOW_TORCH_LOAD": "true",
+        "HF_HOME": "/root/.cache/huggingface",
+        "TRANSFORMERS_CACHE": "/root/.cache/huggingface/hub",
+        "HF_DATASETS_CACHE": "/root/.cache/huggingface/datasets",
+        "HUGGINGFACE_HUB_CACHE": "/root/.cache/huggingface/hub",
+        "HF_HUB_ENABLE_HF_TRANSFER": "1",
+        "ENVIRONMENT_NAME": cst.EnvironmentName.SWE.value,
+        "EVAL_SEED": str(base_seed),
+        "ENV_EVAL_TEMPERATURE": str(temperature),
+        "DOCKER_HUB_USERNAME": os.getenv("DOCKER_HUB_USERNAME", ""),
+        "DOCKER_HUB_TOKEN": os.getenv("DOCKER_HUB_TOKEN", ""),
+        "CHUTES_API_KEY": os.getenv("CHUTES_API_KEY", ""),
+        "R2_BASE_URL": os.getenv("R2_BASE_URL", ""),
+        "R2_PREFIX": os.getenv("R2_PREFIX", ""),
+    }
+
+    client = docker.from_env()
+    evaluation_results: dict[str, dict | str | int] = {}
+    try:
+        for repo in models:
+            container = None
+            environment = dict(base_environment)
+            environment["MODELS"] = repo
+            try:
+                logger.info(f"Running local SWE evaluation for repo: {repo}")
+                container = await asyncio.to_thread(
+                    client.containers.run,
+                    cst.VALIDATOR_DOCKER_IMAGE_SWE,
+                    command=command,
+                    environment=environment,
+                    volumes=volume_bindings,
+                    runtime="nvidia",
+                    device_requests=[
+                        docker.types.DeviceRequest(capabilities=[["gpu"]], device_ids=[str(gpu_id)])
+                    ],
+                    ipc_mode="host",
+                    detach=True,
+                )
+                log_task = asyncio.create_task(
+                    asyncio.to_thread(stream_container_logs, container, None, get_all_context_tags())
+                )
+                result = await asyncio.to_thread(container.wait)
+                log_task.cancel()
+
+                if result["StatusCode"] != 0:
+                    status_code = result["StatusCode"]
+                    raise Exception(f"SWE container for {repo} exited with non-zero status: {status_code}")
+
+                eval_results = await get_evaluation_results(container)
+                raw_result = eval_results.get(repo)
+                if raw_result is None:
+                    raise Exception(f"SWE results missing repo key {repo!r}: {eval_results}")
+                evaluation_results[repo] = raw_result
+                if "model_params_count" in eval_results and "model_params_count" not in evaluation_results:
+                    evaluation_results["model_params_count"] = eval_results["model_params_count"]
+            except Exception as e:
+                logger.error(f"Failed to evaluate SWE repo {repo}: {str(e)}", exc_info=True)
+                evaluation_results[repo] = f"Evaluation failed: {str(e)}"
+            finally:
+                if container is not None:
+                    try:
+                        await asyncio.to_thread(container.remove, force=True)
+                    except Exception as e:
+                        logger.warning(f"Failed to cleanup SWE container for {repo}: {e}")
+    finally:
+        try:
+            await cleanup_resources(client)
+        except Exception as e:
+            logger.info(f"A problem with cleaning up {e}")
+        client.close()
+
+    logger.info(f"Local SWE evaluation results: {evaluation_results}")
     return process_evaluation_results(evaluation_results, is_image=False)
 
 

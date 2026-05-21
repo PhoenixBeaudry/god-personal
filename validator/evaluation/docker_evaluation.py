@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 from uuid import UUID
 
@@ -94,9 +95,14 @@ async def run_evaluation_basilica_text(
         deployment_ids_by_repo.setdefault(repo, dep_info)
     task_type = type(dataset_type).__name__
     is_environment_eval = isinstance(dataset_type, EnvironmentDatasetType)
-    is_intercode_eval = is_environment_eval and getattr(dataset_type, "environment_name", None) == "intercode"
+    environment_name = getattr(dataset_type, "environment_name", None)
+    environment_name_value = getattr(environment_name, "value", environment_name)
+    is_intercode_eval = is_environment_eval and environment_name_value == cst.EnvironmentName.INTERCODE.value
+    is_swe_eval = is_environment_eval and environment_name_value == cst.EnvironmentName.SWE.value
     if is_intercode_eval:
         basilica_image = cst.VALIDATOR_DOCKER_IMAGE_INTERCODE
+    elif is_swe_eval:
+        basilica_image = cst.VALIDATOR_DOCKER_IMAGE_SWE
     elif is_environment_eval:
         basilica_image = cst.VALIDATOR_DOCKER_IMAGE_ENV
     else:
@@ -115,6 +121,8 @@ async def run_evaluation_basilica_text(
     elif isinstance(dataset_type, EnvironmentDatasetType):
         if is_intercode_eval:
             command = ["python", "-m", "validator.evaluation.eval_intercode"]
+        elif is_swe_eval:
+            command = ["python", "-m", "validator.evaluation.eval_swe"]
         else:
             command = ["python", "-m", "validator.evaluation.eval_environment"]
     else:
@@ -139,16 +147,22 @@ async def run_evaluation_basilica_text(
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
     }
     if is_environment_eval:
-        env_name = dataset_type.environment_name
+        env_name = cst.EnvironmentName(environment_name_value)
         if env_name not in cst.ENVIRONMENT_CONFIGS:
             raise ValueError(f"Environment '{env_name}' not found. Supported: {[e.value for e in cst.EnvironmentName]}")
         base_seed = eval_seed if eval_seed is not None else vcst.ENV_EVAL_DEFAULT_SEED
         base_env["ENVIRONMENT_NAME"] = env_name.value
         base_env["EVAL_SEED"] = str(base_seed)
         base_env["ENV_EVAL_TEMPERATURE"] = str(vcst.ENV_EVAL_TEMPERATURE)
-        # Intercode runs bash actions in-process via subprocess; it has no
-        # env-server, so we skip ENV_SERVER_CMD for that variant.
-        if not is_intercode_eval:
+        # InterCode runs bash actions in-process, and SWE starts its own
+        # task server inside eval_swe.py, so only generic envs get ENV_SERVER_CMD.
+        if is_swe_eval:
+            base_env["DOCKER_HUB_USERNAME"] = os.getenv("DOCKER_HUB_USERNAME", "")
+            base_env["DOCKER_HUB_TOKEN"] = os.getenv("DOCKER_HUB_TOKEN", "")
+            base_env["CHUTES_API_KEY"] = os.getenv("CHUTES_API_KEY", "")
+            base_env["R2_BASE_URL"] = os.getenv("R2_BASE_URL", "")
+            base_env["R2_PREFIX"] = os.getenv("R2_PREFIX", "")
+        if not is_intercode_eval and not is_swe_eval:
             base_env["ENV_SERVER_CMD"] = vcst.ENV_SERVER_CMD_DEFAULT
 
     logger.debug(f"Running Basilica {task_type} evaluation (per-repo deployments) for models: {models}")
