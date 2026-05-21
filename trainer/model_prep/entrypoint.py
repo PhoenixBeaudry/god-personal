@@ -35,23 +35,35 @@ from trainer.model_prep.stats import compute_text_stats
 def detect_and_merge_lora(model_id: str, hf_token: str) -> ModelPrepResult:
     """Auto-detect LoRA adapter and merge with base if needed.
 
-    Reads base_model_name_or_path from adapter_config.json — no caller input needed.
+    model_id can be a local path or HF repo. Checks for adapter_config.json
+    locally first, falls back to HF API for remote repos.
     """
-    try:
-        api = HfApi(token=hf_token)
-        repo_files = api.list_repo_files(model_id, token=hf_token)
-        if cst.LORA_ADAPTER_CONFIG_FILE not in repo_files:
+    adapter_config_path = os.path.join(model_id, cst.LORA_ADAPTER_CONFIG_FILE)
+    is_local = os.path.isdir(model_id)
+
+    if is_local:
+        if not os.path.exists(adapter_config_path):
             return ModelPrepResult(effective_model_path=model_id)
-    except Exception as exc:
-        print(f"Could not check for LoRA: {exc}, loading as full weights", flush=True)
-        return ModelPrepResult(effective_model_path=model_id)
+    else:
+        try:
+            api = HfApi(token=hf_token)
+            repo_files = api.list_repo_files(model_id, token=hf_token)
+            if cst.LORA_ADAPTER_CONFIG_FILE not in repo_files:
+                return ModelPrepResult(effective_model_path=model_id)
+        except Exception as exc:
+            print(f"Could not check for LoRA: {exc}, loading as full weights", flush=True)
+            return ModelPrepResult(effective_model_path=model_id)
 
     print(f"LoRA adapter detected: {model_id}", flush=True)
 
     try:
-        config_path = hf_hub_download(model_id, cst.LORA_ADAPTER_CONFIG_FILE, token=hf_token)
-        with open(config_path) as f:
-            adapter_config = json.load(f)
+        if is_local:
+            with open(adapter_config_path) as f:
+                adapter_config = json.load(f)
+        else:
+            config_path = hf_hub_download(model_id, cst.LORA_ADAPTER_CONFIG_FILE, token=hf_token)
+            with open(config_path) as f:
+                adapter_config = json.load(f)
 
         base_model_id = adapter_config.get("base_model_name_or_path")
         if not base_model_id:
@@ -73,13 +85,12 @@ def detect_and_merge_lora(model_id: str, hf_token: str) -> ModelPrepResult:
         merged = PeftModel.from_pretrained(base_model, model_id, token=hf_token)
         merged = merged.merge_and_unload(safe_merge=False)
 
-        merge_dir = "/tmp/merged_model"
+        merge_dir = "/cache/merged_model"
         os.makedirs(merge_dir, exist_ok=True)
         merged.save_pretrained(merge_dir, safe_serialization=True)
         target_tokenizer = lora_tokenizer if len(lora_tokenizer) >= len(base_tokenizer) else base_tokenizer
         target_tokenizer.save_pretrained(merge_dir)
 
-        # Free merge memory before main() reloads from disk
         del base_model, merged
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
