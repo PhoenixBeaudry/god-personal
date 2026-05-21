@@ -288,7 +288,8 @@ async def _evaluate_and_update_hotkeys(task: AnyTypeRawTask, hotkeys: list[str],
             config.psql_db,
         )
     except PvPIncompleteError as e:
-        logger.info(f"PvP eval incomplete for task {task.task_id}: {e} — will retry next cycle")
+        logger.info(f"PvP eval incomplete for task {task.task_id}: {e} — resetting to pending for retry")
+        await tasks_sql.update_task_evaluations_status(task.task_id, hotkeys, "pending", config.psql_db)
     except Exception as e:
         logger.error(f"Error evaluating pending pairs for task {task.task_id}: {e}", exc_info=True)
         await tasks_sql.update_task_evaluations_status(task.task_id, hotkeys, "failure", config.psql_db)
