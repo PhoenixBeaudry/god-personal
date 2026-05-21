@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 from datetime import datetime
@@ -688,47 +689,47 @@ async def _run_full_weight_fallback(
     environment_names: list[core_cst.EnvironmentName],
     seed: int,
 ) -> list[PvPPairResult]:
-    """Run 1v1 pair evals for full-weight contestants against each group participant."""
+    """Run 1v1 pair evals for full-weight contestants — all pairs in parallel."""
     fallback = group_results.full_weight_fallbacks
     if fallback is None:
         return []
     lora_hotkeys = [h for h in group_results.hotkeys if h not in set(fallback.hotkeys)]
     fw_repo_by_hotkey = dict(zip(fallback.hotkeys, fallback.repos))
 
-    all_pair_results: list[PvPPairResult] = []
+    tasks = []
 
     for fw_hotkey in fallback.hotkeys:
         fw_repo = fw_repo_by_hotkey[fw_hotkey]
 
         for lora_hotkey in lora_hotkeys:
             lora_repo = miner_repos[lora_hotkey]
-            logger.info(f"Full-weight fallback 1v1: {fw_hotkey[:8]} vs {lora_hotkey[:8]}")
-            pair_group = await run_evaluation_pvp_pair(
-                model_a_repo=fw_repo,
-                model_b_repo=lora_repo,
-                hotkey_a=fw_hotkey,
-                hotkey_b=lora_hotkey,
-                base_model=base_model,
-                environment_names=environment_names,
-                seed=seed,
-            )
-            all_pair_results.extend(pair_group.pair_results)
+            logger.info(f"Full-weight pair (parallel): {fw_hotkey[:8]} vs {lora_hotkey[:8]}")
+            tasks.append(run_evaluation_pvp_pair(
+                model_a_repo=fw_repo, model_b_repo=lora_repo,
+                hotkey_a=fw_hotkey, hotkey_b=lora_hotkey,
+                base_model=base_model, environment_names=environment_names, seed=seed,
+            ))
 
         for other_fw_hotkey in fallback.hotkeys:
             if other_fw_hotkey <= fw_hotkey:
                 continue
             other_fw_repo = fw_repo_by_hotkey[other_fw_hotkey]
-            logger.info(f"Full-weight fallback 1v1: {fw_hotkey[:8]} vs {other_fw_hotkey[:8]}")
-            pair_group = await run_evaluation_pvp_pair(
-                model_a_repo=fw_repo,
-                model_b_repo=other_fw_repo,
-                hotkey_a=fw_hotkey,
-                hotkey_b=other_fw_hotkey,
-                base_model=base_model,
-                environment_names=environment_names,
-                seed=seed,
-            )
-            all_pair_results.extend(pair_group.pair_results)
+            logger.info(f"Full-weight pair (parallel): {fw_hotkey[:8]} vs {other_fw_hotkey[:8]}")
+            tasks.append(run_evaluation_pvp_pair(
+                model_a_repo=fw_repo, model_b_repo=other_fw_repo,
+                hotkey_a=fw_hotkey, hotkey_b=other_fw_hotkey,
+                base_model=base_model, environment_names=environment_names, seed=seed,
+            ))
+
+    logger.info(f"Dispatching {len(tasks)} pair evals in parallel")
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    all_pair_results: list[PvPPairResult] = []
+    for r in results:
+        if isinstance(r, Exception):
+            logger.error(f"Pair eval failed: {r}")
+        else:
+            all_pair_results.extend(r.pair_results)
 
     return all_pair_results
 
