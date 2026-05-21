@@ -91,15 +91,27 @@ class LLMBot(pyspiel.Bot):
             self._system_prompt_set = True
 
         current = state.current_player()
-        if current != self._player_id:
-            logger.warning(
-                "Player ID mismatch: bot._player_id=%d but state.current_player()=%d",
-                self._player_id, current,
-            )
         legal_actions = state.legal_actions(current)
+
+        if current != self._player_id:
+            logger.error(
+                "Player ID mismatch: bot._player_id=%d current_player=%d "
+                "legal_actions(current)=%s legal_actions(self)=%s "
+                "is_terminal=%s is_chance=%s",
+                self._player_id, current,
+                state.legal_actions(current), state.legal_actions(self._player_id),
+                state.is_terminal(), state.is_chance_node(),
+            )
+
         if not legal_actions:
-            logger.error("Empty legal_actions for player %d — likely SIGALRM interrupted C call, forfeiting", current)
-            raise TurnTimeoutError(self._player_id)
+            logger.error(
+                "Empty legal_actions: player_id=%d current_player=%d "
+                "is_terminal=%s is_chance=%s game=%s state:\n%s",
+                self._player_id, current,
+                state.is_terminal(), state.is_chance_node(),
+                self._game.get_type().short_name, str(state)[:1000],
+            )
+
         user_prompt = self._agent.generate_user_prompt(state, self._player_id, legal_actions)
         self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))
 
