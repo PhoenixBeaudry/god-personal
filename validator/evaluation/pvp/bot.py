@@ -91,6 +91,11 @@ class LLMBot(pyspiel.Bot):
             self._system_prompt_set = True
 
         legal_actions = state.legal_actions(self._player_id)
+        if not legal_actions:
+            legal_actions = state.legal_actions()
+        if not legal_actions:
+            logger.warning("No legal actions available for player %d, returning action 0", self._player_id)
+            return 0
         user_prompt = self._agent.generate_user_prompt(state, self._player_id, legal_actions)
         self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))
 
