@@ -1413,3 +1413,43 @@ async def get_weekly_task_participation_data(psql_db: PSQLDB) -> list[HotkeyTask
 
         logger.info(f"Found weekly task participation for {len(result)} hotkeys over 7 days")
         return result
+
+
+async def insert_pvp_pair_result(
+    task_id: str,
+    hotkey_a: str,
+    hotkey_b: str,
+    environment_name: str,
+    model_a_wins: int,
+    model_b_wins: int,
+    draws: int,
+    total_games: int,
+    psql_db: PSQLDB,
+) -> None:
+    """Store a completed PvP pair result. Upsert to handle retries."""
+    async with await psql_db.connection() as connection:
+        await connection.execute("""
+            INSERT INTO pvp_pair_results (task_id, hotkey_a, hotkey_b, environment_name,
+                                          model_a_wins, model_b_wins, draws, total_games)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (task_id, hotkey_a, hotkey_b, environment_name)
+            DO UPDATE SET model_a_wins = $5, model_b_wins = $6, draws = $7,
+                          total_games = $8, created_at = CURRENT_TIMESTAMP
+        """, task_id, hotkey_a, hotkey_b, environment_name, model_a_wins, model_b_wins, draws, total_games)
+
+
+async def get_pvp_pair_results(task_id: str, psql_db: PSQLDB) -> list[dict]:
+    """Get all completed PvP pair results for a task."""
+    async with await psql_db.connection() as connection:
+        rows = await connection.fetch("""
+            SELECT hotkey_a, hotkey_b, environment_name, model_a_wins, model_b_wins, draws, total_games
+            FROM pvp_pair_results
+            WHERE task_id = $1
+        """, task_id)
+        return [dict(r) for r in rows]
+
+
+async def delete_pvp_pair_results(task_id: str, psql_db: PSQLDB) -> None:
+    """Delete all PvP pair results for a task (for full re-eval)."""
+    async with await psql_db.connection() as connection:
+        await connection.execute("DELETE FROM pvp_pair_results WHERE task_id = $1", task_id)

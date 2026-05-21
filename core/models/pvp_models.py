@@ -12,6 +12,11 @@ from pydantic import Field
 from core.constants import EnvironmentName
 
 
+class PvPIncompleteError(Exception):
+    """Raised when PvP eval has incomplete pairs — completed pairs are persisted in DB."""
+    pass
+
+
 class PvPBaseModel(BaseModel):
     """Base for PvP models that have fields starting with 'model_'."""
 

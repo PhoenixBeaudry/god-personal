@@ -36,6 +36,7 @@ TOURNAMENT_TASKS_TABLE = "tournament_tasks"
 BENCHMARK_ROOT_TASKS_TABLE = "benchmark_root_tasks"
 BENCHMARK_TASK_COPIES_TABLE = "benchmark_task_copies"
 TOURNAMENT_TASK_HOTKEY_TRAININGS_TABLE = "tournament_task_hotkey_trainings"
+PVP_PAIR_RESULTS_TABLE = "pvp_pair_results"
 
 # Tournament Task Hotkey Trainings Table Columns
 PRIORITY = "priority"

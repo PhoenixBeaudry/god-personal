@@ -5,6 +5,7 @@ import validator.core.constants as cst
 import validator.db.sql.nodes as nodes_sql
 import validator.db.sql.tasks as tasks_sql
 import validator.db.sql.tournaments as tournament_sql
+from core.models.pvp_models import PvPIncompleteError
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from validator.core.config import Config
@@ -286,6 +287,8 @@ async def _evaluate_and_update_hotkeys(task: AnyTypeRawTask, hotkeys: list[str],
             "failure",
             config.psql_db,
         )
+    except PvPIncompleteError as e:
+        logger.info(f"PvP eval incomplete for task {task.task_id}: {e} — will retry next cycle")
     except Exception as e:
         logger.error(f"Error evaluating pending pairs for task {task.task_id}: {e}", exc_info=True)
         await tasks_sql.update_task_evaluations_status(task.task_id, hotkeys, "failure", config.psql_db)
