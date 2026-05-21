@@ -524,9 +524,11 @@ async def process_miners_pool(
     if miner_repos and should_use_pvp(task):
         try:
             results.extend(await _run_pvp_group_eval(task, miner_repos, config))
+        except PvPIncompleteError:
+            raise
         except Exception as e:
-            logger.error(f"PvP group evaluation incomplete: {e}", exc_info=True)
-            raise  # Completed pairs persisted in DB, task stays in evaluating for retry
+            logger.error(f"PvP group evaluation failed: {e}", exc_info=True)
+            raise PvPIncompleteError(f"PvP eval failed, will retry: {e}") from e
     elif miner_repos:
         try:
             eval_results = await _evaluate_submissions(
