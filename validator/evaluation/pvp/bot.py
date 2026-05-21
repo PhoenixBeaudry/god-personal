@@ -90,7 +90,13 @@ class LLMBot(pyspiel.Bot):
             self._conversation.append(ChatMessage(role=ChatRole.SYSTEM, content=system_prompt))
             self._system_prompt_set = True
 
-        legal_actions = state.legal_actions(state.current_player())
+        current = state.current_player()
+        if current != self._player_id:
+            logger.warning(
+                "Player ID mismatch: bot._player_id=%d but state.current_player()=%d",
+                self._player_id, current,
+            )
+        legal_actions = state.legal_actions(current)
         user_prompt = self._agent.generate_user_prompt(state, self._player_id, legal_actions)
         self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))
 
