@@ -27,6 +27,14 @@ class TurnTimeoutError(Exception):
         super().__init__(f"Player {player_id} exceeded {vcst.PVP_TURN_TIMEOUT_SECONDS}s turn timeout")
 
 
+class EmptyLegalActionsError(Exception):
+    """Raised when the game state has no legal actions for the current player."""
+
+    def __init__(self, player_id: int):
+        self.player_id = player_id
+        super().__init__(f"No legal actions for player {player_id}")
+
+
 class LLMBot(pyspiel.Bot):
     """OpenSpiel Bot backed by an LLM via injectable chat function.
 
@@ -106,11 +114,12 @@ class LLMBot(pyspiel.Bot):
         if not legal_actions:
             logger.error(
                 "Empty legal_actions: player_id=%d current_player=%d "
-                "is_terminal=%s is_chance=%s game=%s state:\n%s",
+                "is_terminal=%s is_chance=%s game=%s",
                 self._player_id, current,
                 state.is_terminal(), state.is_chance_node(),
-                self._game.get_type().short_name, str(state)[:1000],
+                self._game.get_type().short_name,
             )
+            raise EmptyLegalActionsError(self._player_id)
 
         user_prompt = self._agent.generate_user_prompt(state, self._player_id, legal_actions)
         self._conversation.append(ChatMessage(role=ChatRole.USER, content=user_prompt))

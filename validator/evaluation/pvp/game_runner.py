@@ -33,7 +33,7 @@ from validator.evaluation.pvp.agents import (
     LeducPokerAgent,
     LiarsDiceAgent,
 )
-from validator.evaluation.pvp.bot import LLMBot, TurnTimeoutError
+from validator.evaluation.pvp.bot import EmptyLegalActionsError, LLMBot, TurnTimeoutError
 from validator.evaluation.pvp.chat import chat_completion, create_client
 from validator.evaluation.pvp.scoring import determine_outcome
 
@@ -259,6 +259,9 @@ def _evaluate_with_timeout(
             exc.player_id,
         )
         return _forfeit_returns(state, exc.player_id)
+    except EmptyLegalActionsError:
+        logger.warning("Game stuck with no legal actions — scoring as draw")
+        return [0.0] * state.num_players()
 
 
 def _tally(result: PvPEnvironmentResult, outcome: GameOutcome) -> None:
