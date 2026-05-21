@@ -248,21 +248,15 @@ async def _finalize_task_status_from_evaluations(task: AnyTypeRawTask, config: C
 
     await finalize_task_scores_from_raw_losses(task, [row["hotkey"] for row in rows], config)
 
-    if any(status == "failure" for status in statuses):
+    if not successful_hotkeys:
         task.status = TaskStatus.FAILURE
         add_context_tag("status", task.status.value)
-        failed_hotkeys = [row["hotkey"] for row in rows if row["evaluation_status"] == "failure"]
-        if config.discord_url:
-            try:
-                await send_to_discord(
-                    config.discord_url,
-                    f"Evaluation failed for task {task.task_id}. Failed hotkeys: {failed_hotkeys}",
-                )
-            except Exception as e:
-                logger.warning(f"Failed to send evaluation webhook: {e}")
     else:
         task.status = TaskStatus.SUCCESS
         add_context_tag("status", task.status.value)
+        failed_hotkeys = [row["hotkey"] for row in rows if row["evaluation_status"] == "failure"]
+        if failed_hotkeys:
+            logger.info(f"Task {task.task_id} succeeded with {len(failed_hotkeys)} failed hotkeys: {failed_hotkeys}")
 
     task.n_eval_attempts = (task.n_eval_attempts or 0) + 1
     await tasks_sql.update_task(task, config.psql_db)
