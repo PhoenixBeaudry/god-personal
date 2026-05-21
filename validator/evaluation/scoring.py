@@ -674,8 +674,16 @@ async def _run_pvp_group_eval(
         group_results.hotkeys.extend(group_results.full_weight_fallbacks.hotkeys)
 
     env_weights = getattr(task, "environment_weights", None) or None
+    logger.info(
+        f"Scoring: {len(group_results.pair_results)} pair_results, "
+        f"{len(group_results.hotkeys)} hotkeys: {group_results.hotkeys}"
+    )
+    for pr in group_results.pair_results:
+        for env, er in pr.results.items():
+            logger.info(f"  {pr.hotkey_a[:8]} vs {pr.hotkey_b[:8]} {env.value}: a={er.model_a_wins} b={er.model_b_wins} d={er.draws}")
     standings = compute_pvp_tournament_points(group_results, weights=env_weights)
     points_by_hotkey = {s.hotkey: s.points for s in standings}
+    logger.info(f"Standings: {[(s.hotkey[:8], s.points) for s in standings]}")
 
     return [
         MinerResultsText(
