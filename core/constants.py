@@ -119,7 +119,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
     EnvironmentName.SWE: EnvironmentConfig(
         task_id_min=0,
         task_id_max=7349,
-        num_seeds=10,
+        num_seeds=2,
         num_baseline_episodes=10,
         eval_type=EvalType.MCTS,
         env_image=SWE_INFINITE_DOCKER_IMAGE,
