@@ -164,6 +164,7 @@ async def _create_environment_boss_round_tasks(
             num_environments=num_envs, round_number=round_data.round_number,
             model_id_override=model_override,
             training_start_point=start_point,
+            exclude_models=[tournament_base_model] if tournament_base_model else None,
         )
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
