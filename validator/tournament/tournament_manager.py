@@ -392,25 +392,24 @@ async def create_next_round(
         next_round_is_final = len(winners) == 1
 
         if is_env:
-            # Env tournaments: boss competes in every round as a group member
-            if cst.EMISSION_BURN_HOTKEY not in winners:
-                winners.append(cst.EMISSION_BURN_HOTKEY)
-                logger.info("Added boss to environment round group")
+            # Env tournaments use groups — boss stays, final when only boss + 1 challenger
             if len(winners) == 2 and cst.EMISSION_BURN_HOTKEY in winners:
                 next_round_is_final = True
-        elif len(winners) == 2:
-            if cst.EMISSION_BURN_HOTKEY in winners:
-                next_round_is_final = True
-        elif len(winners) % 2 == 1:
-            if cst.EMISSION_BURN_HOTKEY not in winners:
-                winners.append(cst.EMISSION_BURN_HOTKEY)
-                logger.info("Added burn hotkey to make even number of participants")
-            else:
-                if len(winners) == 1:
+        else:
+            # Text/image knockout tournaments need even pairs
+            if len(winners) == 2:
+                if cst.EMISSION_BURN_HOTKEY in winners:
                     next_round_is_final = True
+            elif len(winners) % 2 == 1:
+                if cst.EMISSION_BURN_HOTKEY not in winners:
+                    winners.append(cst.EMISSION_BURN_HOTKEY)
+                    logger.info("Added burn hotkey to make even number of participants")
                 else:
-                    winners = [w for w in winners if w != cst.EMISSION_BURN_HOTKEY]
-                    logger.info("Removed burn hotkey to make even number of participants")
+                    if len(winners) == 1:
+                        next_round_is_final = True
+                    else:
+                        winners = [w for w in winners if w != cst.EMISSION_BURN_HOTKEY]
+                        logger.info("Removed burn hotkey to make even number of participants")
 
         winner_nodes = []
         for hotkey in winners:

@@ -1052,7 +1052,18 @@ async def get_environment_group_winners(
             continue
 
         sorted_participants = sorted(participant_scores.items(), key=lambda x: x[1], reverse=True)
+        boss_score = participant_scores.get(boss_hotkey)
         non_boss_sorted = [(hotkey, score) for hotkey, score in sorted_participants if hotkey != boss_hotkey]
+
+        # If boss ties or beats all challengers, no one advances — boss retains
+        if boss_score is not None and non_boss_sorted:
+            top_challenger_score = non_boss_sorted[0][1]
+            if boss_score >= top_challenger_score:
+                logger.info(
+                    f"Environment group {group_id}: boss score {boss_score} >= top challenger {top_challenger_score} "
+                    f"— boss retains, no challengers advance"
+                )
+                continue
 
         # Advance up to ENV_ADVANCE_PER_GROUP but always eliminate at least 1 to guarantee convergence
         top_to_advance = max(1, min(t_cst.ENV_ADVANCE_PER_GROUP, len(non_boss_sorted) - 1))
