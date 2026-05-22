@@ -132,9 +132,16 @@ def _check_early_forfeit(
     consec_b_losses: int,
     remaining: int,
     env_name: str,
+    games_played: int,
 ) -> bool:
-    """Award remaining games to the dominant player if the other lost too many in a row."""
-    limit = vcst.PVP_CONSECUTIVE_LOSS_FORFEIT
+    """Award remaining games to the dominant player if the other lost too many in a row.
+
+    Uses a tighter threshold for the opening games and a looser one after that.
+    """
+    early_limit = vcst.PVP_CONSECUTIVE_LOSS_FORFEIT
+    late_limit = early_limit * 2
+    limit = early_limit if games_played <= early_limit else late_limit
+
     if consec_a_losses >= limit:
         loser, winner_attr = "a", "model_b_wins"
     elif consec_b_losses >= limit:
@@ -142,7 +149,7 @@ def _check_early_forfeit(
     else:
         return False
 
-    logger.info("%s: model_%s lost %d in a row — forfeiting %d remaining games", env_name, loser, limit, remaining)
+    logger.info("%s: model_%s lost %d in a row (after %d games) — forfeiting %d remaining", env_name, loser, limit, games_played, remaining)
     setattr(result, winner_attr, getattr(result, winner_attr) + remaining)
     result.total_games += remaining
     return True
@@ -177,7 +184,7 @@ def _execute_matchup(
             consec_b_losses = 0
 
         remaining = len(instances) - i - 1
-        if _check_early_forfeit(result, consec_a_losses, consec_b_losses, remaining, env_name.value):
+        if _check_early_forfeit(result, consec_a_losses, consec_b_losses, remaining, env_name.value, i + 1):
             break
 
         if (i + 1) % vcst.PVP_LOG_INTERVAL_GAMES == 0:
