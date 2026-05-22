@@ -1,5 +1,4 @@
 import asyncio
-import os
 import random
 import uuid
 from uuid import UUID
@@ -118,11 +117,8 @@ async def run_evaluation_basilica_text(
     environment_name = _first_environment_name(dataset_type) if is_environment_eval else None
     environment_name_value = getattr(environment_name, "value", environment_name)
     is_intercode_eval = is_environment_eval and environment_name_value == cst.EnvironmentName.INTERCODE.value
-    is_swe_eval = is_environment_eval and environment_name_value == cst.EnvironmentName.SWE.value
     if is_intercode_eval:
         basilica_image = cst.VALIDATOR_DOCKER_IMAGE_INTERCODE
-    elif is_swe_eval:
-        basilica_image = cst.VALIDATOR_DOCKER_IMAGE_SWE
     elif is_environment_eval:
         basilica_image = cst.VALIDATOR_DOCKER_IMAGE_ENV
     else:
@@ -141,8 +137,6 @@ async def run_evaluation_basilica_text(
     elif isinstance(dataset_type, EnvironmentDatasetType):
         if is_intercode_eval:
             command = ["python", "-m", "validator.evaluation.eval_intercode"]
-        elif is_swe_eval:
-            command = ["python", "-m", "validator.evaluation.eval_swe"]
         else:
             command = ["python", "-m", "validator.evaluation.eval_environment"]
     else:
@@ -170,19 +164,8 @@ async def run_evaluation_basilica_text(
         base_env["ENVIRONMENT_NAME"] = env_name.value
         base_env["EVAL_SEED"] = str(base_seed)
         base_env["ENV_EVAL_TEMPERATURE"] = str(vcst.ENV_EVAL_TEMPERATURE)
-        # InterCode runs bash actions in-process, and SWE dispatches
-        # Basilica task-image workers directly, so only generic envs get ENV_SERVER_CMD.
-        if is_swe_eval:
-            base_env["DOCKER_HUB_USERNAME"] = os.getenv("DOCKER_HUB_USERNAME", "")
-            base_env["DOCKER_HUB_TOKEN"] = os.getenv("DOCKER_HUB_TOKEN", "")
-            base_env["CHUTES_API_KEY"] = os.getenv("CHUTES_API_KEY", "")
-            base_env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
-            basilica_token = os.getenv("BASILICA_API_TOKEN") or os.getenv("BASILICA_API_KEY", "")
-            base_env["BASILICA_API_TOKEN"] = basilica_token
-            base_env["BASILICA_API_KEY"] = basilica_token
-            base_env["R2_BASE_URL"] = os.getenv("R2_BASE_URL", "")
-            base_env["R2_PREFIX"] = os.getenv("R2_PREFIX", "")
-        if not is_intercode_eval and not is_swe_eval:
+        # InterCode runs bash actions in-process, so only generic envs get ENV_SERVER_CMD.
+        if not is_intercode_eval:
             base_env["ENV_SERVER_CMD"] = vcst.ENV_SERVER_CMD_DEFAULT
 
     logger.debug(f"Running Basilica {task_type} evaluation (per-repo deployments) for models: {models}")
@@ -203,9 +186,9 @@ async def run_evaluation_basilica_text(
         image=basilica_image,
         source=source,
         build_env_for_repo=build_env_for_repo,
-        gpu_count=None if is_swe_eval else max(1, num_gpus),
-        gpu_models=[] if is_swe_eval else vcst.BASILICA_GPU_MODELS,
-        min_gpu_memory_gb=None if is_swe_eval else vcst.BASILICA_SGLANG_MIN_GPU_MEMORY_GB,
+        gpu_count=max(1, num_gpus),
+        gpu_models=vcst.BASILICA_GPU_MODELS,
+        min_gpu_memory_gb=vcst.BASILICA_SGLANG_MIN_GPU_MEMORY_GB,
         storage=False,
         task_id=task_id,
         psql_db=psql_db,

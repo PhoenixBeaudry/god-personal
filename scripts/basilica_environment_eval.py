@@ -19,7 +19,7 @@ BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 LORA_MODEL_NAME = None  # e.g. "your-org/your-lora-repo"
 
 # --- Evaluation Configuration ---
-GAME_TO_EVAL = "swe"
+GAME_TO_EVAL = "intercode"
 RANDOM_SEED = 42
 NUM_GPUS = 1
 
