@@ -118,7 +118,6 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
 
             # Model prep: augmentation + baseline stats (runs on trainer GPU)
             # Skip for organic tasks when stats are disabled (no augmentation either)
-            prep_result = None
             if not (task.is_organic and not cst.BASELINE_STATS_ENABLED_ORGANIC):
                 reward_fns = getattr(task, "reward_functions", None)
                 is_env_task = task.task_type == TaskType.ENVIRONMENTTASK
@@ -133,16 +132,14 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
                     reward_functions=reward_fns,
                     is_env_task=is_env_task,
                 )
-            if prep_result is not None:
-                if prep_result.augmented_model_id:
-                    task.augmented_model_id = prep_result.augmented_model_id
-                if prep_result.baseline_stats:
-                    task.baseline_stats = prep_result.baseline_stats
-            else:
-                # Model prep failed (e.g. GPU conflict) — park the task so
-                # process_awaiting_model_prep_tasks can retry it later.
-                task.status = TaskStatus.AWAITING_MODEL_PREP
-                logger.info(f"Model prep unavailable for task {task.task_id}, moving to {task.status.value}")
+                if prep_result is not None:
+                    if prep_result.augmented_model_id:
+                        task.augmented_model_id = prep_result.augmented_model_id
+                    if prep_result.baseline_stats:
+                        task.baseline_stats = prep_result.baseline_stats
+                else:
+                    task.status = TaskStatus.AWAITING_MODEL_PREP
+                    logger.info(f"Model prep unavailable for task {task.task_id}, moving to {task.status.value}")
 
             await tasks_sql.update_task(task, config.psql_db)
         except Exception as e:
