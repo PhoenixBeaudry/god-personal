@@ -12,7 +12,7 @@ from core import constants as core_cst
 from core.models.payload_models import DiffusionLosses
 from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
-from core.models.pvp_models import PvPEnvironmentResult, PvPGroupModelSpec, PvPGroupResults, PvPIncompleteError, PvPPairDbRow, PvPPairResult, _canonical_pair_key
+from core.models.pvp_models import PvPEnvironmentResult, PvPEvalMetadata, PvPGroupModelSpec, PvPGroupResults, PvPIncompleteError, PvPPairDbRow, PvPPairResult, _canonical_pair_key
 
 PairKey = str  # sorted "hotkey_a:hotkey_b"
 from core.models.scoring_models import EvalHotkeyResults
@@ -647,31 +647,59 @@ async def _run_pvp_group_eval(
 
     logger.info(f"PvP group eval: task={task.task_id}, {len(participants)} participants, envs={environment_names}")
 
-    group_results = await run_evaluation_pvp_group(
-        participants=participants,
-        base_model=base_model,
-        environment_names=environment_names,
-        seed=seed,
-    )
+    # Check if all pairs already complete in DB — skip Basilica entirely
+    all_hotkeys = list(miner_repos.keys())
+    env_name_strs = [e.value for e in environment_names]
+    db_rows = await tournament_sql.get_pvp_pair_results(str(task.task_id), config.psql_db)
+    rows_by_pair = _group_db_rows_by_pair(db_rows)
+    max_pair_attempts = 3
 
-    # Persist group eval pair results to DB
-    for pair_result in group_results.pair_results:
-        for env_name, env_result in pair_result.results.items():
-            await tournament_sql.save_pvp_pair_result(
-                task_id=str(task.task_id),
-                result=pair_result,
-                environment_name=env_name.value,
-                env_result=env_result,
-                psql_db=config.psql_db,
-            )
+    required_pairs = set()
+    for i, hk_a in enumerate(all_hotkeys):
+        for hk_b in all_hotkeys[i + 1:]:
+            required_pairs.add(_canonical_pair_key(hk_a, hk_b))
 
-    if group_results.full_weight_fallbacks:
-        fallback_pair_results = await _run_full_weight_fallback(
-            group_results, miner_repos, base_model, environment_names, seed,
-            task_id=str(task.task_id), psql_db=config.psql_db,
+    all_pair_results: list[PvPPairResult] = []
+    for pair_key in required_pairs:
+        if pair_key in rows_by_pair:
+            pr = _try_build_pair_result(pair_key, rows_by_pair[pair_key], env_name_strs, max_pair_attempts)
+            if pr:
+                all_pair_results.append(pr)
+
+    if len(all_pair_results) == len(required_pairs):
+        logger.info(f"All {len(required_pairs)} pairs already complete in DB — skipping Basilica")
+        group_results = PvPGroupResults(
+            base_model=base_model,
+            hotkeys=all_hotkeys,
+            pair_results=all_pair_results,
+            metadata=PvPEvalMetadata(seed=seed, temperature=0.0, wall_time_seconds=0),
         )
-        group_results.pair_results.extend(fallback_pair_results)
-        group_results.hotkeys.extend(group_results.full_weight_fallbacks.hotkeys)
+    else:
+        group_results = await run_evaluation_pvp_group(
+            participants=participants,
+            base_model=base_model,
+            environment_names=environment_names,
+            seed=seed,
+        )
+
+        # Persist group eval pair results to DB
+        for pair_result in group_results.pair_results:
+            for env_name, env_result in pair_result.results.items():
+                await tournament_sql.save_pvp_pair_result(
+                    task_id=str(task.task_id),
+                    result=pair_result,
+                    environment_name=env_name.value,
+                    env_result=env_result,
+                    psql_db=config.psql_db,
+                )
+
+        if group_results.full_weight_fallbacks:
+            fallback_pair_results = await _run_full_weight_fallback(
+                group_results, miner_repos, base_model, environment_names, seed,
+                task_id=str(task.task_id), psql_db=config.psql_db,
+            )
+            group_results.pair_results.extend(fallback_pair_results)
+            group_results.hotkeys.extend(group_results.full_weight_fallbacks.hotkeys)
 
     env_weights = getattr(task, "environment_weights", None) or None
     logger.info(
