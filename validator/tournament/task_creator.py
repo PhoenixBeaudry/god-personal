@@ -151,20 +151,21 @@ async def _create_environment_boss_round_tasks(
     logger.info(f"Boss round setup: tournament_base_model={tournament_base_model}, prev_winner_model={prev_tourn_winner_model}")
 
     boss_task_configs = [
-        (tournament_base_model, TrainingStartPoint.CONTINUATION),
-        (None, TrainingStartPoint.FROM_SCRATCH),
-        (prev_tourn_winner_model, TrainingStartPoint.PREVIOUS_WINNER),
+        (tournament_base_model, TrainingStartPoint.CONTINUATION, None),
+        (None, TrainingStartPoint.FROM_SCRATCH, t_cst.ENV_TRAINING_HOURS_BOSS_ROUND),
+        (prev_tourn_winner_model, TrainingStartPoint.PREVIOUS_WINNER, None),
     ]
 
     for i in range(len(tasks), t_cst.ENV_FINAL_ROUND_TASK_COUNT):
-        model_override, start_point = boss_task_configs[i]
-        logger.info(f"Boss round task {i+1}/{t_cst.ENV_FINAL_ROUND_TASK_COUNT}: start_point={start_point.value}, model={model_override}")
+        model_override, start_point, hours = boss_task_configs[i]
+        logger.info(f"Boss round task {i+1}/{t_cst.ENV_FINAL_ROUND_TASK_COUNT}: start_point={start_point.value}, model={model_override}, hours={hours}")
         task = await create_synthetic_env_task(
             config, models, instruct_datasets,
             num_environments=num_envs, round_number=round_data.round_number,
             model_id_override=model_override,
             training_start_point=start_point,
             exclude_models=[tournament_base_model] if tournament_base_model else None,
+            hours_override=hours,
         )
         await _create_and_register_tournament_task(task, tournament_id, round_id, config, group_id=group_id)
         tasks.append(task)
