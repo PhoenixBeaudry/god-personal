@@ -4,13 +4,25 @@
 #   docker build -f dockerfiles/validator-swe.dockerfile -t phoenixbeaudry/env-eval-swe:basilica .
 
 ARG SWE_BASE_IMAGE=phoenixbeaudry/swe-infinite:v1
-FROM ${SWE_BASE_IMAGE}
+ARG SGLANG_BASE_IMAGE=lmsysorg/sglang:latest
+
+FROM ${SWE_BASE_IMAGE} AS swe_runtime
+
+FROM ${SGLANG_BASE_IMAGE}
 
 USER root
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates libnuma1 \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=swe_runtime /app /app
+
+RUN if [ -f /app/requirements.txt ]; then \
+        pip install --no-cache-dir --upgrade-strategy only-if-needed -r /app/requirements.txt; \
+    elif [ -f /app/pyproject.toml ]; then \
+        pip install --no-cache-dir --upgrade-strategy only-if-needed /app; \
+    fi
 
 RUN pip install --no-cache-dir --upgrade-strategy only-if-needed \
     fastapi "uvicorn[standard]" httpx pydantic structlog \
@@ -27,7 +39,7 @@ RUN mkdir -p src && touch src/__init__.py
 RUN pip install --no-cache-dir --upgrade-strategy only-if-needed .
 
 RUN pip install --no-cache-dir --upgrade-strategy only-if-needed \
-    "sglang[all]" peft==0.18.1 accelerate==1.6.0 aiohttp openai
+    peft==0.18.1 accelerate==1.6.0 aiohttp openai
 
 COPY . /validator-app
 
