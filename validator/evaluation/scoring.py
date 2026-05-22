@@ -835,6 +835,8 @@ async def _run_full_weight_fallback(
         return all_pair_results
 
     # Fire off all missing pairs — each persists independently on completion
+    failed_pairs: list[str] = []
+
     async def _run_and_persist(key: str):
         hk_a, hk_b = key.split(":")
         await tournament_sql.increment_pvp_pair_attempts(str(task_id), hk_a, hk_b, psql_db)
@@ -855,9 +857,13 @@ async def _run_full_weight_fallback(
             logger.info(f"Pair {key} completed and persisted")
         except Exception as e:
             logger.error(f"Pair {key} failed: {e}")
+            failed_pairs.append(key)
 
     logger.info(f"Dispatching {len(remaining_keys)} pairs in parallel")
     await asyncio.gather(*[_run_and_persist(k) for k in remaining_keys])
+
+    if failed_pairs:
+        logger.warning(f"{len(failed_pairs)}/{len(remaining_keys)} pairs failed: {failed_pairs}")
 
     # Re-read DB and build final results
     updated_rows = await tournament_sql.get_pvp_pair_results(str(task_id), psql_db)

@@ -137,6 +137,12 @@ def _check_early_forfeit(
     """Award remaining games to the dominant player if the other lost too many in a row.
 
     Uses a tighter threshold for the opening games and a looser one after that.
+    If a model loses the first N games straight, it's clearly outmatched — forfeit early.
+    After the opening window, require 2N consecutive losses before forfeiting, giving
+    models more chance to recover from a bad streak mid-game.
+
+    Note: the threshold switches at games_played > early_limit, so a model that loses
+    games 1-N forfeits at game N, but a streak starting after game N needs 2N in a row.
     """
     early_limit = vcst.PVP_CONSECUTIVE_LOSS_FORFEIT
     late_limit = early_limit * 2

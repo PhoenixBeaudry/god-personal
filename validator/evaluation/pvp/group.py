@@ -185,7 +185,12 @@ def _detect_lora_names(models: list[PvPGroupModelSpec]) -> tuple[dict[str, str],
             logger.warning("Model %s repo not found: %s — will receive 0 scores", spec.hotkey, spec.repo)
             missing.append(spec)
             continue
-        is_lora = check_for_lora(spec.repo, local_files_only=False)
+        try:
+            is_lora = check_for_lora(spec.repo, local_files_only=False)
+        except Exception as e:
+            logger.warning("Failed to check LoRA for %s (%s): %s — treating as missing", spec.hotkey, spec.repo, e)
+            missing.append(spec)
+            continue
         names[spec.repo] = f"lora_{i}" if is_lora else ""
         logger.info("Model %s: is_lora=%s, adapter_name=%s", spec.hotkey, is_lora, names[spec.repo] or "(full weights)")
     return names, missing
