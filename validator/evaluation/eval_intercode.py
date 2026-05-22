@@ -170,20 +170,22 @@ def _configure_logging() -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
-def _parse_environment_name() -> str:
+def _parse_environment_name() -> cst.EnvironmentName:
     dataset_type_raw = os.getenv("DATASET_TYPE", "{}")
     env_name = os.getenv("ENVIRONMENT_NAME")
     if not env_name:
         try:
             dataset_type = EnvironmentDatasetType.model_validate_json(dataset_type_raw)
-            env_name = dataset_type.environment_name
+            environment_names = dataset_type.environment_names or []
+            env_name = environment_names[0] if environment_names else None
         except Exception:
             env_name = None
+    env_name = getattr(env_name, "value", env_name)
     if not env_name:
         raise ValueError("Missing environment name. Set ENVIRONMENT_NAME or DATASET_TYPE.")
-    if env_name != "intercode":
+    if env_name != cst.EnvironmentName.INTERCODE.value:
         raise ValueError(f"eval_intercode invoked with environment_name={env_name!r}; expected 'intercode'")
-    return env_name
+    return cst.EnvironmentName.INTERCODE
 
 
 def _build_sglang_command(model_path: str, seed: int) -> str:

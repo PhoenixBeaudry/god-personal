@@ -42,7 +42,8 @@ def _parse_environment_name() -> cst.EnvironmentName:
     if not env_name:
         try:
             dataset_type = EnvironmentDatasetType.model_validate_json(dataset_type_raw)
-            env_name = _environment_value(dataset_type.environment_name)
+            environment_names = dataset_type.environment_names or []
+            env_name = _environment_value(environment_names[0]) if environment_names else None
         except Exception:
             env_name = None
 

@@ -44,8 +44,13 @@ from validator.utils.logging import stream_container_logs
 logger = get_logger(__name__)
 
 
+def _first_environment_name(dataset_type: EnvironmentDatasetType) -> cst.EnvironmentName | None:
+    environment_names = dataset_type.environment_names or []
+    return environment_names[0] if environment_names else None
+
+
 def _is_intercode_environment(dataset_type: EnvironmentDatasetType) -> bool:
-    env_name = getattr(dataset_type, "environment_name", None)
+    env_name = _first_environment_name(dataset_type)
     return (
         env_name == cst.EnvironmentName.INTERCODE
         or getattr(env_name, "value", env_name) == cst.EnvironmentName.INTERCODE.value
@@ -53,7 +58,7 @@ def _is_intercode_environment(dataset_type: EnvironmentDatasetType) -> bool:
 
 
 def _is_swe_environment(dataset_type: EnvironmentDatasetType) -> bool:
-    env_name = getattr(dataset_type, "environment_name", None)
+    env_name = _first_environment_name(dataset_type)
     return (
         env_name == cst.EnvironmentName.SWE
         or getattr(env_name, "value", env_name) == cst.EnvironmentName.SWE.value
@@ -333,7 +338,7 @@ async def run_evaluation_local_environment(
     stream_sglang_logs = os.getenv("LOCAL_ENV_STREAM_SGLANG_LOGS", "0").strip().lower() in {"1", "true", "yes", "on"}
     raw_sglang_log_file = os.getenv("LOCAL_ENV_SGLANG_RAW_LOG_FILE", "").strip()
 
-    env_name = dataset_type.environment_name
+    env_name = (dataset_type.environment_names or [None])[0]
     if env_name not in cst.ENVIRONMENT_CONFIGS:
         raise ValueError(f"Environment '{env_name}' not found. Supported: {[e.value for e in cst.EnvironmentName]}")
 
@@ -556,9 +561,9 @@ async def run_evaluation_local_intercode(
 ) -> DockerEvaluationResults:
     logger.info(f"Starting local Docker InterCode evaluation for {len(models)} repos: {models}")
     if not _is_intercode_environment(dataset_type):
-        actual_env_name = dataset_type.environment_name
+        actual_env_name = _first_environment_name(dataset_type)
         raise ValueError(
-            f"run_evaluation_local_intercode requires environment_name='intercode', got {actual_env_name!r}"
+            f"run_evaluation_local_intercode requires environment_names=['intercode'], got {actual_env_name!r}"
         )
 
     base_seed = eval_seed if eval_seed is not None else vcst.ENV_EVAL_DEFAULT_SEED
@@ -653,8 +658,8 @@ async def run_evaluation_local_swe(
 ) -> DockerEvaluationResults:
     logger.info(f"Starting local Docker SWE evaluation for {len(models)} repos: {models}")
     if not _is_swe_environment(dataset_type):
-        actual_env_name = dataset_type.environment_name
-        raise ValueError(f"run_evaluation_local_swe requires environment_name='swe', got {actual_env_name!r}")
+        actual_env_name = _first_environment_name(dataset_type)
+        raise ValueError(f"run_evaluation_local_swe requires environment_names=['swe'], got {actual_env_name!r}")
 
     base_seed = eval_seed if eval_seed is not None else vcst.ENV_EVAL_DEFAULT_SEED
     temperature = float(os.getenv("ENV_EVAL_TEMPERATURE", str(vcst.ENV_EVAL_TEMPERATURE)))

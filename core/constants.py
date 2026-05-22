@@ -23,8 +23,24 @@ VALIDATOR_DOCKER_IMAGE_DIFFUSION = "gradientsio/image-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_ENV = "gradientsio/env-evaluator:basilica"
 VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica"  # TODO make this gradientsio image
 VALIDATOR_DOCKER_IMAGE_SWE = "phoenixbeaudry/env-eval-swe:basilica"  # TODO make this gradientsio image
+VALIDATOR_DOCKER_IMAGE_PVP = "weightswandering/pvp-evaluator:v5"
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
 SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:context" # TODO rebuild this from current affinetes head
+
+
+class EvalType(str, Enum):
+    MCTS = "mcts"
+    PVP = "pvp"
+
+
+class TrainingStartPoint(str, Enum):
+    """What model a task trains from."""
+
+    DEFAULT = "default"
+    CONTINUATION = "continuation"
+    FROM_SCRATCH = "from_scratch"
+    PREVIOUS_WINNER = "previous_winner"
+
 
 
 class EnvironmentName(str, Enum):
@@ -41,8 +57,9 @@ class EnvironmentConfig:
     task_id_max: int
     num_seeds: int
     num_baseline_episodes: int
-    env_image: str | None
-    eval_payload_extra: dict
+    eval_type: EvalType
+    env_image: str | None = None
+    eval_payload_extra: dict | None = None
     task_timeout: int | None = None
     max_concurrent_requests: int | None = None
 
@@ -53,6 +70,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=299_999_999,
         num_seeds=2000,
         num_baseline_episodes=50,
+        eval_type=EvalType.PVP,
         env_image=MCTS_API_DOCKER_IMAGE,
         eval_payload_extra={
             "opponent": "mcts",
@@ -66,6 +84,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=199_999_999,
         num_seeds=10_000,
         num_baseline_episodes=50,
+        eval_type=EvalType.PVP,
         env_image=MCTS_API_DOCKER_IMAGE,
         eval_payload_extra={
             "opponent": "mcts",
@@ -79,6 +98,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=399_999_999,
         num_seeds=1000,
         num_baseline_episodes=25,
+        eval_type=EvalType.PVP,
         env_image=MCTS_API_DOCKER_IMAGE,
         eval_payload_extra={
             "opponent": "mcts",
@@ -92,6 +112,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=200,
         num_seeds=200,
         num_baseline_episodes=10,
+        eval_type=EvalType.MCTS,
         env_image=None,  # TODO Deal with this
         eval_payload_extra={},
     ),
@@ -100,6 +121,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         task_id_max=7349,
         num_seeds=10,
         num_baseline_episodes=10,
+        eval_type=EvalType.MCTS,
         env_image=SWE_INFINITE_DOCKER_IMAGE,
         eval_payload_extra={
             "agent": "miniswe",
@@ -111,6 +133,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
 }
 
 CONTAINER_EVAL_RESULTS_PATH = "/aplp/evaluation_results.json"
+LORA_ADAPTER_CONFIG_FILE = "adapter_config.json"
 
 CONFIG_DIR = "core/config/"
 OUTPUT_DIR = "core/outputs/"

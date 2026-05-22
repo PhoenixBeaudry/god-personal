@@ -67,8 +67,9 @@ async def _insert_base_task(connection: Connection, task: AnyTypeRawTask) -> dic
         {cst.YARN_FACTOR},
         {cst.AUGMENTATION_CONFIG},
         {cst.AUGMENTED_MODEL_ID},
-        {cst.BASELINE_STATS})
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        {cst.BASELINE_STATS},
+        {cst.TRAINING_START_POINT})
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         RETURNING *
     """
     return await connection.fetchrow(
@@ -92,6 +93,7 @@ async def _insert_base_task(connection: Connection, task: AnyTypeRawTask) -> dic
         task.augmentation_config.model_dump() if task.augmentation_config else None,
         task.augmented_model_id,
         task.baseline_stats.model_dump() if task.baseline_stats else None,
+        task.training_start_point.value,
     )
 
 
@@ -236,14 +238,17 @@ async def _insert_grpo_task(connection: Connection, task: GrpoRawTask, task_reco
 async def _insert_env_task(connection: Connection, task: EnvRawTask, task_record: dict) -> None:
     query_env = f"""
         INSERT INTO {cst.ENV_TASKS_TABLE}
-        ({cst.TASK_ID}, {cst.ENVIRONMENT_NAME}, {cst.EVAL_SEED})
-        VALUES ($1, $2, $3)
+        ({cst.TASK_ID}, {cst.ENVIRONMENT_NAMES}, {cst.ENVIRONMENT_WEIGHTS}, {cst.EVAL_SEED})
+        VALUES ($1, $2, $3, $4)
     """
+    env_names = [e.value for e in task.environment_names] if task.environment_names else []
+    env_weights = [w.model_dump() for w in task.environment_weights] if task.environment_weights else []
     await connection.execute(
         query_env,
         task_record[cst.TASK_ID],
-        task.environment_name,
-        task.eval_seed
+        env_names,
+        env_weights,
+        task.eval_seed,
     )
 
 
@@ -363,7 +368,7 @@ async def get_tasks_with_status(
                 """
             elif task_type == TaskType.ENVIRONMENTTASK.value:
                 specific_query = f"""
-                    SELECT t.*, et.environment_name
+                    SELECT t.*, et.environment_names, et.environment_weights
                     FROM {cst.TASKS_TABLE} t
                     LEFT JOIN {cst.ENV_TASKS_TABLE} et ON t.{cst.TASK_ID} = et.{cst.TASK_ID}
                     WHERE t.{cst.TASK_ID} = $1
@@ -433,6 +438,35 @@ async def set_expected_repo_name(task_id: str, node: Node, psql_db: PSQLDB, expe
             AND {cst.NETUID} = $4
         """
         await connection.execute(query, expected_repo_name, task_id, node.hotkey, NETUID)
+
+
+async def set_starting_model_repo(task_id: str, hotkey: str, starting_model_repo: str, psql_db: PSQLDB) -> None:
+    """Set the per-miner starting model for model continuation between rounds."""
+    async with await psql_db.connection() as connection:
+        connection: Connection
+        query = f"""
+            UPDATE {cst.TASK_NODES_TABLE}
+            SET {cst.STARTING_MODEL_REPO} = $1
+            WHERE {cst.TASK_ID} = $2
+            AND {cst.HOTKEY} = $3
+            AND {cst.NETUID} = $4
+        """
+        await connection.execute(query, starting_model_repo, task_id, hotkey, NETUID)
+
+
+async def get_starting_model_repo(task_id: str, hotkey: str, psql_db: PSQLDB) -> str | None:
+    """Get the per-miner starting model for this task, if set."""
+    async with await psql_db.connection() as connection:
+        connection: Connection
+        query = f"""
+            SELECT {cst.STARTING_MODEL_REPO}
+            FROM {cst.TASK_NODES_TABLE}
+            WHERE {cst.TASK_ID} = $1
+            AND {cst.HOTKEY} = $2
+            AND {cst.NETUID} = $3
+        """
+        row = await connection.fetchrow(query, task_id, hotkey, NETUID)
+        return row[cst.STARTING_MODEL_REPO] if row and row[cst.STARTING_MODEL_REPO] else None
 
 
 async def get_table_fields(table_name: str, connection: Connection) -> set[str]:
@@ -804,7 +838,7 @@ async def get_task(task_id: UUID, psql_db: PSQLDB, connection: Connection | None
             """
         elif task_type == TaskType.ENVIRONMENTTASK.value:
             specific_query = f"""
-                SELECT t.*, et.environment_name
+                SELECT t.*, et.environment_names, et.environment_weights
                 FROM {cst.TASKS_TABLE} t
                 LEFT JOIN {cst.ENV_TASKS_TABLE} et ON t.{cst.TASK_ID} = et.{cst.TASK_ID}
                 WHERE t.{cst.TASK_ID} = $1
@@ -960,7 +994,7 @@ async def get_task_by_id(task_id: UUID, psql_db: PSQLDB) -> AnyTypeTask:
                 {victorious_repo_cte}
                 SELECT
                     tasks.*,
-                    et.environment_name,
+                    et.environment_names, et.environment_weights, et.eval_seed,
                     COALESCE(tasks.training_repo_backup, victorious_repo.repo) as trained_model_repository
                 FROM {cst.TASKS_TABLE} tasks
                 LEFT JOIN {cst.ENV_TASKS_TABLE} et ON tasks.{cst.TASK_ID} = et.{cst.TASK_ID}
@@ -1126,7 +1160,7 @@ def _get_specific_query_for_task_type(task_type: str) -> str | None:
         """
     elif task_type == TaskType.ENVIRONMENTTASK.value:
         return f"""
-            SELECT t.*, et.environment_name
+            SELECT t.*, et.environment_names, et.environment_weights
             FROM {cst.TASKS_TABLE} t
             LEFT JOIN {cst.ENV_TASKS_TABLE} et ON t.{cst.TASK_ID} = et.{cst.TASK_ID}
             WHERE t.{cst.TASK_ID} = ANY($1)
@@ -1261,7 +1295,7 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 tasks.append(GrpoTask(**task_data, reward_functions=reward_functions))
             elif task_type == TaskType.ENVIRONMENTTASK.value:
                 env_query = f"""
-                    SELECT environment_name
+                    SELECT environment_names, environment_weights
                     FROM {cst.ENV_TASKS_TABLE}
                     WHERE {cst.TASK_ID} = $1
                 """

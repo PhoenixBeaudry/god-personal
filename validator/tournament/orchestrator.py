@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from dotenv import load_dotenv
@@ -635,7 +636,9 @@ async def _create_training_request(
             f"participant or the training repo was not properly set during tournament registration."
         )
 
-    training_model = task.augmented_model_id or task.model_id
+    # Per-miner starting model override (for round continuation)
+    starting_model = await task_sql.get_starting_model_repo(str(task.task_id), hotkey, config.psql_db)
+    training_model = starting_model or task.augmented_model_id or task.model_id
 
     if task.task_type == TaskType.IMAGETASK:
         training_data = TrainRequestImage(
@@ -837,11 +840,23 @@ async def _update_all_trainers_gpu_availability(config: Config):
                 # Find GPUs that are free according to trainer but marked as used in DB
                 gpus_to_reset = []
                 gpus_to_mark_unavailable = []
+                grace_period = timedelta(seconds=cst.GPU_RESERVATION_GRACE_PERIOD_SECONDS)
+                now = datetime.now(timezone.utc)
+
                 for current_gpu in current_gpus:
                     if current_gpu.available:
                         # Check if this GPU is marked as used in our database
                         for db_gpu in trainer.gpus:
                             if db_gpu.gpu_id == current_gpu.gpu_id and not db_gpu.available:
+                                # Skip reset if reservation was made recently — the task is likely
+                                # still in its build phase (clone, docker build) and hasn't started
+                                # a container yet, so the trainer incorrectly reports "available".
+                                if db_gpu.updated_at and (now - db_gpu.updated_at) < grace_period:
+                                    logger.debug(
+                                        f"Skipping reset for GPU {db_gpu.gpu_id} on {trainer.trainer_ip}: "
+                                        f"reservation is {(now - db_gpu.updated_at).seconds}s old (grace period: {grace_period})"
+                                    )
+                                    break
                                 gpus_to_reset.append(current_gpu.gpu_id)
                                 break
                     else:

@@ -37,7 +37,7 @@ async def test_run_evaluation_docker_text_routes_intercode_to_local_intercode(mo
     monkeypatch.setattr(local_evaluation, "run_evaluation_local_intercode", fake_intercode_runner)
     monkeypatch.setattr(local_evaluation, "run_evaluation_local_environment", fake_environment_runner)
 
-    dataset_type = EnvironmentDatasetType(environment_name=EnvironmentName.INTERCODE)
+    dataset_type = EnvironmentDatasetType(environment_names=[EnvironmentName.INTERCODE])
     result = await local_evaluation.run_evaluation_docker_text(
         dataset="/tmp/unused.json",
         models=["org/model"],
@@ -94,7 +94,7 @@ async def test_run_evaluation_docker_text_routes_swe_to_local_swe(monkeypatch):
     monkeypatch.setattr(local_evaluation, "run_evaluation_local_environment", fake_environment_runner)
     monkeypatch.setattr(local_evaluation, "run_evaluation_local_intercode", fake_intercode_runner)
 
-    dataset_type = EnvironmentDatasetType(environment_name=EnvironmentName.SWE)
+    dataset_type = EnvironmentDatasetType(environment_names=[EnvironmentName.SWE])
     result = await local_evaluation.run_evaluation_docker_text(
         dataset="/tmp/unused.json",
         models=["org/model"],
