@@ -138,6 +138,11 @@ async def _prep_task(task: AnyTypeRawTask, config: Config):
                     task.augmented_model_id = prep_result.augmented_model_id
                 if prep_result.baseline_stats:
                     task.baseline_stats = prep_result.baseline_stats
+            else:
+                # Model prep failed (e.g. GPU conflict) — park the task so
+                # process_awaiting_model_prep_tasks can retry it later.
+                task.status = TaskStatus.AWAITING_MODEL_PREP
+                logger.info(f"Model prep unavailable for task {task.task_id}, moving to {task.status.value}")
 
             await tasks_sql.update_task(task, config.psql_db)
         except Exception as e:
