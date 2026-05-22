@@ -134,7 +134,7 @@ async def _create_environment_boss_round_tasks(
     Task 3: Winner continuation or TARGET_TOURN_MODEL
     """
     round_id = round_data.round_id
-    group_id = round_data.groups[0].group_id
+    group_id = f"{round_id}_group_001"
     num_envs = min(round_data.round_number * t_cst.ENV_ENVS_PER_ROUND_MULTIPLIER, len(EnvironmentName))
 
     existing_tasks = await _get_existing_tasks_by_identifier(round_id, config)
