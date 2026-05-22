@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ from validator.evaluation.utils import stop_process
 
 
 logger = logging.getLogger(__name__)
+_DOCKER_SOCK_PATH = "/var/run/docker.sock"
 
 
 def _environment_value(env_name: object) -> str | None:
@@ -71,6 +73,82 @@ def _candidate_swe_server_commands(env_base_url: str) -> list[str]:
         uvicorn_base.format(module="main:app"),
         uvicorn_base.format(module="swe_infinite.server:app"),
     ]
+
+
+def _docker_info_error() -> str | None:
+    try:
+        result = subprocess.run(
+            ["docker", "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        return str(exc)
+    if result.returncode == 0:
+        version = result.stdout.strip() or "unknown"
+        logger.info("eval_setup Docker daemon available (server=%s)", version)
+        return None
+    return (result.stderr or result.stdout or "").strip()
+
+
+async def _ensure_docker_daemon() -> tuple[Popen | None, asyncio.Task | None]:
+    docker_error = _docker_info_error()
+    if docker_error is None:
+        return None, None
+
+    if os.getenv("SWE_START_DOCKER_DAEMON", "1").strip().lower() in {"0", "false", "no", "off"}:
+        raise RuntimeError(
+            "SWE-INFINITE requires a Docker daemon for task containers, but Docker is unavailable: "
+            f"{docker_error}"
+        )
+
+    data_root = os.getenv("SWE_DOCKER_DATA_ROOT", "/tmp/swe-docker-data")
+    os.makedirs(data_root, exist_ok=True)
+    os.makedirs(os.path.dirname(_DOCKER_SOCK_PATH), exist_ok=True)
+
+    command = (os.getenv("SWE_DOCKERD_CMD") or "").strip()
+    if command:
+        logger.info("eval_setup Docker unavailable; starting dockerd via SWE_DOCKERD_CMD: %s", command)
+        proc = _start_process(command, "dockerd")
+    else:
+        dockerd_args = [
+            "dockerd",
+            f"--host=unix://{_DOCKER_SOCK_PATH}",
+            f"--data-root={data_root}",
+            "--storage-driver=vfs",
+            "--iptables=false",
+            "--ip-forward=false",
+            "--ip-masq=false",
+            "--bridge=none",
+        ]
+        logger.info("eval_setup Docker unavailable; starting dockerd: %s", " ".join(dockerd_args))
+        proc = Popen(
+            dockerd_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            preexec_fn=os.setsid,
+        )
+    log_task = asyncio.create_task(_stream_logs(proc, "dockerd"))
+
+    timeout = int(os.getenv("SWE_DOCKERD_TIMEOUT", "120"))
+    start = time.monotonic()
+    last_error = docker_error
+    while time.monotonic() - start < timeout:
+        if proc.poll() is not None:
+            raise RuntimeError(f"dockerd exited before becoming ready; last Docker error: {last_error}")
+        current_error = _docker_info_error()
+        if current_error is None:
+            return proc, log_task
+        last_error = current_error
+        await asyncio.sleep(1)
+
+    raise RuntimeError(
+        "Timed out waiting for dockerd. SWE-INFINITE requires Docker access for task containers. "
+        f"Last Docker error: {last_error}"
+    )
 
 
 async def _start_swe_env_server(env_base_url: str) -> tuple[Popen | None, asyncio.Task | None]:
@@ -287,8 +365,10 @@ async def _run_swe_evaluation(
 async def _run() -> None:
     env_proc = None
     sglang_proc = None
+    dockerd_proc = None
     env_log_task = None
     sglang_log_task = None
+    dockerd_log_task = None
 
     try:
         logger.info("eval_swe: start pid=%s EVAL_LOG_LEVEL=%s", os.getpid(), os.getenv("EVAL_LOG_LEVEL", "INFO"))
@@ -365,6 +445,7 @@ async def _run() -> None:
             service_name="SGLang",
         )
 
+        dockerd_proc, dockerd_log_task = await _ensure_docker_daemon()
         env_proc, env_log_task = await _start_swe_env_server(env_base_url)
 
         avg_score = await _run_swe_evaluation(
@@ -386,10 +467,13 @@ async def _run() -> None:
     finally:
         stop_process(env_proc, "swe-env-server")
         stop_process(sglang_proc, "sglang")
+        stop_process(dockerd_proc, "dockerd")
         if env_log_task:
             env_log_task.cancel()
         if sglang_log_task:
             sglang_log_task.cancel()
+        if dockerd_log_task:
+            dockerd_log_task.cancel()
 
 
 def main() -> int:

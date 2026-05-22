@@ -175,11 +175,13 @@ async def run_evaluation_basilica_text(
         # InterCode runs bash actions in-process, and SWE starts its own
         # task server inside eval_swe.py, so only generic envs get ENV_SERVER_CMD.
         if is_swe_eval:
+            swe_docker_data_root = os.getenv("SWE_DOCKER_DATA_ROOT", "/tmp/swe-docker-data")
             base_env["DOCKER_HUB_USERNAME"] = os.getenv("DOCKER_HUB_USERNAME", "")
             base_env["DOCKER_HUB_TOKEN"] = os.getenv("DOCKER_HUB_TOKEN", "")
             base_env["CHUTES_API_KEY"] = os.getenv("CHUTES_API_KEY", "")
             base_env["R2_BASE_URL"] = os.getenv("R2_BASE_URL", "")
             base_env["R2_PREFIX"] = os.getenv("R2_PREFIX", "")
+            base_env["SWE_DOCKER_DATA_ROOT"] = swe_docker_data_root
         if not is_intercode_eval and not is_swe_eval:
             base_env["ENV_SERVER_CMD"] = vcst.ENV_SERVER_CMD_DEFAULT
 
@@ -204,6 +206,7 @@ async def run_evaluation_basilica_text(
         gpu_count=max(1, num_gpus),
         gpu_models=vcst.BASILICA_GPU_MODELS,
         min_gpu_memory_gb=vcst.BASILICA_SGLANG_MIN_GPU_MEMORY_GB,
+        storage=base_env.get("SWE_DOCKER_DATA_ROOT", False) if is_swe_eval else False,
         task_id=task_id,
         psql_db=psql_db,
         repo_to_hotkey=repo_to_hotkey,

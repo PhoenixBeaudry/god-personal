@@ -49,5 +49,8 @@ ENV SGLANG_HEALTH_PATH=/v1/models
 ENV ENV_SERVER_BASE_URL=http://127.0.0.1:8001
 ENV ENV_SERVER_HEALTH_PATH=/health
 ENV AFFINETES_PORT=8001
+ENV SWE_START_DOCKER_DAEMON=1
+ENV SWE_DOCKERD_TIMEOUT=120
+ENV SWE_DOCKER_DATA_ROOT=/tmp/swe-docker-data
 
 ENV SWE_ENV_SERVER_CMD="cd /app && python -m uvicorn _affinetes.server:app --host 0.0.0.0 --port 8001 --workers 1 --loop asyncio"
