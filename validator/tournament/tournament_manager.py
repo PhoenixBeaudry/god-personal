@@ -555,8 +555,9 @@ async def advance_tournament(tournament: TournamentData, completed_round: Tourna
             logger.info(f"Tournament {tournament.tournament_id} completed with winner: {winner}. Please update DB manually.")
 
             # Save winner's model repo for next tournament's PREVIOUS_WINNER task
-            if tournament.tournament_type == TournamentType.ENVIRONMENT and winner != cst.EMISSION_BURN_HOTKEY:
-                await _save_winner_model_repo(tournament.tournament_id, winner, round_tasks, psql_db)
+            if tournament.tournament_type == TournamentType.ENVIRONMENT:
+                save_hotkey = winner if winner != cst.EMISSION_BURN_HOTKEY else cst.EMISSION_BURN_HOTKEY
+                await _save_winner_model_repo(tournament.tournament_id, save_hotkey, round_tasks, psql_db)
 
             if winner != cst.EMISSION_BURN_HOTKEY:
                 try:
