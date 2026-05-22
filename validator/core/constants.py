@@ -1,9 +1,9 @@
 import os
 from datetime import date
 
-from core.constants import EnvironmentName
 from core.constants import GRPO_DEFAULT_FIELD_PROMPT
 from core.constants import NETUID
+from core.constants import EnvironmentName
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
 
@@ -48,7 +48,7 @@ GET_ALL_MODELS_ID = "model_id"
 
 # data stuff
 TRAIN_TEST_SPLIT_PERCENTAGE = 0.1
-MAX_TEST_DATA_POINTS = 400
+MAX_TEST_DATA_POINTS = 1000
 
 IMAGE_TRAIN_SPLIT_ZIP_NAME = "train_data.zip"
 IMAGE_TEST_SPLIT_ZIP_NAME = "test_data.zip"
@@ -232,11 +232,12 @@ TOURNAMENT_INTERVAL_HOURS = 72
 TOURNAMENT_SCHEDULE_ENVIRONMENT_DAY_OF_WEEK = 0  # 0=Monday
 TOURNAMENT_SCHEDULE_ENVIRONMENT_HOUR = 14  # 0-23 (UTC time)
 
-# Text and Image tournaments: Thursday at 14:00 UTC
+# Text tournaments: Thursday at 14:00 UTC
 TOURNAMENT_SCHEDULE_TEXT_DAY_OF_WEEK = 3  # 3=Thursday
 TOURNAMENT_SCHEDULE_TEXT_HOUR = 14  # 0-23 (UTC time)
+# Image tournaments: Thursday at 15:00 UTC
 TOURNAMENT_SCHEDULE_IMAGE_DAY_OF_WEEK = 3  # 3=Thursday
-TOURNAMENT_SCHEDULE_IMAGE_HOUR = 14  # 0-23 (UTC time)
+TOURNAMENT_SCHEDULE_IMAGE_HOUR = 15  # 0-23 (UTC time)
 
 TOURNAMENT_INTERVAL_HOURS = (
     120  # Display value for frontend (5 days), not used for actual scheduling. TODO: remove once frontend is updated
@@ -302,6 +303,7 @@ STANDARD_CHAT_MESSAGES_COLUMN = "conversations"
 
 PROXY_TRAINING_IMAGE_ENDPOINT = "/v1/trainer/start_training"
 MODEL_PREP_ENDPOINT = "/v1/trainer/model_prep"
+MODEL_PREP_STATUS_ENDPOINT = "/v1/trainer/model_prep/{task_id}"
 GET_GPU_AVAILABILITY_ENDPOINT = "/v1/trainer/get_gpu_availability"
 TASK_DETAILS_ENDPOINT = "/v1/trainer/{task_id}"
 GET_RECENT_TASKS_ENDPOINT = "/v1/trainer/get_recent_tasks"
