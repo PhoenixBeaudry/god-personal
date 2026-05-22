@@ -240,6 +240,7 @@ async def _save_winner_model_repo(
     Prefers the PREVIOUS_WINNER task output since it represents the champion lineage.
     Falls back to any task with a valid repo if PREVIOUS_WINNER isn't found.
     """
+    logger.info(f"Saving winner model repo for {winner_hotkey[:12]} from {len(round_tasks)} boss round tasks")
     fallback_repo: str | None = None
     fallback_base_model: str | None = None
 
@@ -255,6 +256,7 @@ async def _save_winner_model_repo(
         winner_repo = f"{RAYONLABS_HF_USERNAME}/{repo_name}"
 
         if task_obj.training_start_point == TrainingStartPoint.PREVIOUS_WINNER:
+            logger.info(f"Saving PREVIOUS_WINNER lineage: {winner_repo} (base={t_cst.ENV_TARGET_TOURN_MODEL})")
             await update_tournament_winner_model(tournament_id, winner_repo, t_cst.ENV_TARGET_TOURN_MODEL, psql_db)
             return
 

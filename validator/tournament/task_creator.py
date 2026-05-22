@@ -148,6 +148,8 @@ async def _create_environment_boss_round_tasks(
     tournament_base_model = await _get_tournament_base_model(tournament_id, config)
     prev_tourn_winner_model = await _get_prev_tourn_winner_model(tournament_id, config)
 
+    logger.info(f"Boss round setup: tournament_base_model={tournament_base_model}, prev_winner_model={prev_tourn_winner_model}")
+
     boss_task_configs = [
         (tournament_base_model, TrainingStartPoint.CONTINUATION),
         (None, TrainingStartPoint.FROM_SCRATCH),
@@ -156,6 +158,7 @@ async def _create_environment_boss_round_tasks(
 
     for i in range(len(tasks), t_cst.ENV_FINAL_ROUND_TASK_COUNT):
         model_override, start_point = boss_task_configs[i]
+        logger.info(f"Boss round task {i+1}/{t_cst.ENV_FINAL_ROUND_TASK_COUNT}: start_point={start_point.value}, model={model_override}")
         task = await create_synthetic_env_task(
             config, models, instruct_datasets,
             num_environments=num_envs, round_number=round_data.round_number,
