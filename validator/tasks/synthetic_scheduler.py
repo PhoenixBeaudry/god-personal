@@ -220,7 +220,7 @@ def _get_training_hours_from_num_rows(num_rows: int) -> int:
 
 
 def _get_training_hours_for_environment_task(round_number: int = 1) -> float:
-    return t_cst.ENV_TRAINING_HOURS_BY_ROUND.get(round_number, t_cst.ENV_TRAINING_HOURS_DEFAULT)
+    return t_cst.ENV_TRAINING_HOURS
 
 
 async def get_dataset(

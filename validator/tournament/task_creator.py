@@ -152,7 +152,7 @@ async def _create_environment_boss_round_tasks(
 
     boss_task_configs = [
         (tournament_base_model, TrainingStartPoint.CONTINUATION, None),
-        (None, TrainingStartPoint.FROM_SCRATCH, t_cst.ENV_TRAINING_HOURS_BOSS_ROUND),
+        (None, TrainingStartPoint.FROM_SCRATCH, t_cst.ENV_TRAINING_HOURS_FROM_SCRATCH),
         (prev_tourn_winner_model, TrainingStartPoint.PREVIOUS_WINNER, None),
     ]
 
