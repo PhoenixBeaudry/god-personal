@@ -519,7 +519,7 @@ Environment tournaments are a specialized tournament type focused on reinforceme
 - **Schedule**: Starts every Monday at 14:00 UTC
 - **Group Size**: Up to 6 per group (see `MAX_ENVIRONMENT_GROUP_SIZE` in `validator/tournament/constants.py`)
 - **Environments per Task**: Scales with round number (R1=2, R2=4, R3=6, etc.)
-- **Training Hours**: Scale with round number (see `ENV_TRAINING_HOURS_BY_ROUND` in `validator/tournament/constants.py`)
+- **Training Hours**: 1.5 hours per round. Boss round from-scratch task gets 3 hours
 - **Supported Environments**: See `ENVIRONMENT_CONFIGS` in [`core/constants.py`](../core/constants.py)
 
 ### Scoring System
