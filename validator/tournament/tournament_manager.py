@@ -388,9 +388,17 @@ async def create_next_round(
     with LogContext(tournament_id=tournament.tournament_id, round_id=next_round_id):
         logger.info(f"Creating next round with {len(winners)} winners: {winners}")
 
+        is_env = tournament.tournament_type == TournamentType.ENVIRONMENT
         next_round_is_final = len(winners) == 1
 
-        if len(winners) == 2:
+        if is_env:
+            # Env tournaments: boss competes in every round as a group member
+            if cst.EMISSION_BURN_HOTKEY not in winners:
+                winners.append(cst.EMISSION_BURN_HOTKEY)
+                logger.info("Added boss to environment round group")
+            if len(winners) == 2 and cst.EMISSION_BURN_HOTKEY in winners:
+                next_round_is_final = True
+        elif len(winners) == 2:
             if cst.EMISSION_BURN_HOTKEY in winners:
                 next_round_is_final = True
         elif len(winners) % 2 == 1:
