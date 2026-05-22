@@ -8,16 +8,14 @@ import basilica
 
 from core import constants as cst
 from core.models.payload_models import DockerEvaluationResults
-from core.models.pvp_models import (
-    PvPEvalConfig,
-    PvPEvalResults,
-    PvPGroupModelSpec,
-    PvPGroupResults,
-    PvPMatchupConfig,
-    PvPMode,
-    PvPModelSpec,
-    PvPPairResult,
-)
+from core.models.pvp_models import PvPEvalConfig
+from core.models.pvp_models import PvPEvalResults
+from core.models.pvp_models import PvPGroupModelSpec
+from core.models.pvp_models import PvPGroupResults
+from core.models.pvp_models import PvPMatchupConfig
+from core.models.pvp_models import PvPMode
+from core.models.pvp_models import PvPModelSpec
+from core.models.pvp_models import PvPPairResult
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
 from core.models.utility_models import EnvironmentDatasetType
@@ -172,16 +170,16 @@ async def run_evaluation_basilica_text(
         base_env["ENVIRONMENT_NAME"] = env_name.value
         base_env["EVAL_SEED"] = str(base_seed)
         base_env["ENV_EVAL_TEMPERATURE"] = str(vcst.ENV_EVAL_TEMPERATURE)
-        # InterCode runs bash actions in-process, and SWE starts its own
-        # task server inside eval_swe.py, so only generic envs get ENV_SERVER_CMD.
+        # InterCode runs bash actions in-process, and SWE dispatches
+        # Basilica task-image workers directly, so only generic envs get ENV_SERVER_CMD.
         if is_swe_eval:
-            swe_docker_data_root = os.getenv("SWE_DOCKER_DATA_ROOT", "/tmp/swe-docker-data")
             base_env["DOCKER_HUB_USERNAME"] = os.getenv("DOCKER_HUB_USERNAME", "")
             base_env["DOCKER_HUB_TOKEN"] = os.getenv("DOCKER_HUB_TOKEN", "")
             base_env["CHUTES_API_KEY"] = os.getenv("CHUTES_API_KEY", "")
+            base_env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
+            base_env["BASILICA_API_KEY"] = os.getenv("BASILICA_API_KEY", "")
             base_env["R2_BASE_URL"] = os.getenv("R2_BASE_URL", "")
             base_env["R2_PREFIX"] = os.getenv("R2_PREFIX", "")
-            base_env["SWE_DOCKER_DATA_ROOT"] = swe_docker_data_root
         if not is_intercode_eval and not is_swe_eval:
             base_env["ENV_SERVER_CMD"] = vcst.ENV_SERVER_CMD_DEFAULT
 
@@ -203,10 +201,10 @@ async def run_evaluation_basilica_text(
         image=basilica_image,
         source=source,
         build_env_for_repo=build_env_for_repo,
-        gpu_count=max(1, num_gpus),
-        gpu_models=vcst.BASILICA_GPU_MODELS,
-        min_gpu_memory_gb=vcst.BASILICA_SGLANG_MIN_GPU_MEMORY_GB,
-        storage=base_env.get("SWE_DOCKER_DATA_ROOT", False) if is_swe_eval else False,
+        gpu_count=None if is_swe_eval else max(1, num_gpus),
+        gpu_models=[] if is_swe_eval else vcst.BASILICA_GPU_MODELS,
+        min_gpu_memory_gb=None if is_swe_eval else vcst.BASILICA_SGLANG_MIN_GPU_MEMORY_GB,
+        storage=False,
         task_id=task_id,
         psql_db=psql_db,
         repo_to_hotkey=repo_to_hotkey,

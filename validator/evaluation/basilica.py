@@ -208,9 +208,9 @@ async def _deploy_basilica_eval_repo(
     image: str,
     source: str,
     env: dict[str, str],
-    gpu_count: int,
+    gpu_count: int | None,
     gpu_models: list[str],
-    min_gpu_memory_gb: int,
+    min_gpu_memory_gb: int | None,
     storage: bool | str,
     task_id: UUID | None,
     psql_db: PSQLDB | None,
@@ -244,22 +244,24 @@ async def _deploy_basilica_eval_repo(
         min_gpu_memory_gb=min_gpu_memory_gb,
     )
 
-    deployment = await asyncio.to_thread(
-        client.deploy,
-        name=deployment_name,
-        source=source,
-        image=image,
-        port=8000,
-        cpu=vcst.EVAL_BASILICA_CPU,
-        memory=vcst.EVAL_BASILICA_MEMORY,
-        storage=storage,
-        ttl_seconds=vcst.EVAL_BASILICA_TTL_SECONDS,
-        timeout=vcst.EVAL_BASILICA_TIMEOUT,
-        env=env,
-        gpu_count=gpu_count,
-        gpu_models=gpu_models,
-        min_gpu_memory_gb=min_gpu_memory_gb,
-    )
+    deploy_kwargs = {
+        "name": deployment_name,
+        "source": source,
+        "image": image,
+        "port": 8000,
+        "cpu": vcst.EVAL_BASILICA_CPU,
+        "memory": vcst.EVAL_BASILICA_MEMORY,
+        "storage": storage,
+        "ttl_seconds": vcst.EVAL_BASILICA_TTL_SECONDS,
+        "timeout": vcst.EVAL_BASILICA_TIMEOUT,
+        "env": env,
+    }
+    if gpu_count and gpu_count > 0:
+        deploy_kwargs["gpu_count"] = gpu_count
+        deploy_kwargs["gpu_models"] = gpu_models
+        deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
+
+    deployment = await asyncio.to_thread(client.deploy, **deploy_kwargs)
     resolved_deployment_name = getattr(deployment, "name", None) or deployment_name
     ctx.log_eval_step("deploy_complete", deployment=resolved_deployment_name)
 
@@ -345,9 +347,9 @@ async def _run_single_basilica_eval_repo(
     image: str,
     source: str,
     env: dict[str, str],
-    gpu_count: int,
+    gpu_count: int | None,
     gpu_models: list[str],
-    min_gpu_memory_gb: int,
+    min_gpu_memory_gb: int | None,
     storage: bool | str = False,
     task_id: UUID | None,
     psql_db: PSQLDB | None,
@@ -479,9 +481,9 @@ async def run_basilica_eval_repos(
     image: str,
     source: str,
     build_env_for_repo,
-    gpu_count: int,
+    gpu_count: int | None,
     gpu_models: list[str],
-    min_gpu_memory_gb: int,
+    min_gpu_memory_gb: int | None,
     storage: bool | str = False,
     task_id: UUID | None,
     psql_db: PSQLDB | None,

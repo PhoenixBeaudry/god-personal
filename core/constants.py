@@ -25,7 +25,6 @@ VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica" 
 VALIDATOR_DOCKER_IMAGE_SWE = "phoenixbeaudry/env-eval-swe:basilica"  # TODO make this gradientsio image
 VALIDATOR_DOCKER_IMAGE_PVP = "weightswandering/pvp-evaluator:v5"
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
-SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:v1" # TODO rebuild this from current affinetes head
 
 
 class EvalType(str, Enum):
@@ -122,7 +121,7 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
         num_seeds=2,
         num_baseline_episodes=10,
         eval_type=EvalType.MCTS,
-        env_image=SWE_INFINITE_DOCKER_IMAGE,
+        env_image=None,
         eval_payload_extra={
             "agent": "miniswe",
             "max_iterations": 100,
