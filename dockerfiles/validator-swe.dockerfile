@@ -19,9 +19,8 @@ RUN apt-get update \
 COPY --from=swe_runtime /app /app
 COPY --from=swe_runtime /tmp/requirements.txt /tmp/swe-infinite-requirements.txt
 COPY --from=swe_runtime /usr/local/bin/codex-static /usr/local/bin/codex-static
-COPY --from=swe_runtime /usr/local/bin/affent-static /usr/local/bin/affent-static
 
-RUN chmod +x /usr/local/bin/codex-static /usr/local/bin/affent-static \
+RUN chmod +x /usr/local/bin/codex-static \
     && pip install --no-cache-dir --upgrade-strategy only-if-needed -r /tmp/swe-infinite-requirements.txt
 
 RUN pip install --no-cache-dir --upgrade-strategy only-if-needed \
