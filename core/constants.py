@@ -25,7 +25,7 @@ VALIDATOR_DOCKER_IMAGE_INTERCODE = "phoenixbeaudry/env-eval-intercode:basilica" 
 VALIDATOR_DOCKER_IMAGE_SWE = "phoenixbeaudry/env-eval-swe:basilica"  # TODO make this gradientsio image
 VALIDATOR_DOCKER_IMAGE_PVP = "weightswandering/pvp-evaluator:v5"
 MCTS_API_DOCKER_IMAGE = "diagonalge/mcts-api:latest"
-SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:context" # TODO rebuild this from current affinetes head
+SWE_INFINITE_DOCKER_IMAGE = "phoenixbeaudry/swe-infinite:v1" # TODO rebuild this from current affinetes head
 
 
 class EvalType(str, Enum):

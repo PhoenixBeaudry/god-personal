@@ -3,7 +3,7 @@
 # Build manually:
 #   docker build -f dockerfiles/validator-swe.dockerfile -t phoenixbeaudry/env-eval-swe:basilica .
 
-ARG SWE_BASE_IMAGE=phoenixbeaudry/swe-infinite:context
+ARG SWE_BASE_IMAGE=phoenixbeaudry/swe-infinite:v1
 FROM ${SWE_BASE_IMAGE}
 
 USER root
