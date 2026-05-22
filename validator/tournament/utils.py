@@ -1021,6 +1021,7 @@ async def get_environment_group_winners(
         logger.warning(f"No tasks found for environment round {completed_round.round_id}")
         return []
 
+    single_group = len(round_tasks) == 1
     all_winners: list[str] = []
 
     for task in round_tasks:
@@ -1055,13 +1056,13 @@ async def get_environment_group_winners(
         boss_score = participant_scores.get(boss_hotkey)
         non_boss_sorted = [(hotkey, score) for hotkey, score in sorted_participants if hotkey != boss_hotkey]
 
-        # If boss ties or beats all challengers, no one advances — boss retains
-        if boss_score is not None and non_boss_sorted:
+        # Boss retains only when down to a single group and boss wins/ties
+        if single_group and boss_score is not None and non_boss_sorted:
             top_challenger_score = non_boss_sorted[0][1]
             if boss_score >= top_challenger_score:
                 logger.info(
                     f"Environment group {group_id}: boss score {boss_score} >= top challenger {top_challenger_score} "
-                    f"— boss retains, no challengers advance"
+                    f"— single group, boss retains"
                 )
                 continue
 
