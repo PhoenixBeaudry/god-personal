@@ -13,16 +13,16 @@ FROM ${SGLANG_BASE_IMAGE}
 USER root
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates libnuma1 \
+    && apt-get install -y --no-install-recommends git curl docker.io ca-certificates libnuma1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=swe_runtime /app /app
+COPY --from=swe_runtime /tmp/requirements.txt /tmp/swe-infinite-requirements.txt
+COPY --from=swe_runtime /usr/local/bin/codex-static /usr/local/bin/codex-static
+COPY --from=swe_runtime /usr/local/bin/affent-static /usr/local/bin/affent-static
 
-RUN if [ -f /app/requirements.txt ]; then \
-        pip install --no-cache-dir --upgrade-strategy only-if-needed -r /app/requirements.txt; \
-    elif [ -f /app/pyproject.toml ]; then \
-        pip install --no-cache-dir --upgrade-strategy only-if-needed /app; \
-    fi
+RUN chmod +x /usr/local/bin/codex-static /usr/local/bin/affent-static \
+    && pip install --no-cache-dir --upgrade-strategy only-if-needed -r /tmp/swe-infinite-requirements.txt
 
 RUN pip install --no-cache-dir --upgrade-strategy only-if-needed \
     fastapi "uvicorn[standard]" httpx pydantic structlog \
