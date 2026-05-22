@@ -9,7 +9,7 @@ FROM ${SWE_BASE_IMAGE}
 USER root
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates libnuma1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade-strategy only-if-needed \
