@@ -16,16 +16,16 @@ from core import constants as cst
 from core.models.utility_models import EnvironmentDatasetType
 from validator.core import constants as vcst
 from validator.evaluation.eval_environment import _build_sglang_command
-from validator.evaluation.eval_environment import _configure_logging
 from validator.evaluation.eval_environment import _download_lora_with_retry
 from validator.evaluation.eval_environment import _download_model_with_retry
 from validator.evaluation.eval_environment import _merge_base_and_lora
 from validator.evaluation.eval_environment import _start_process
-from validator.evaluation.eval_environment import _stop_process
 from validator.evaluation.eval_environment import _stream_logs
 from validator.evaluation.eval_environment import _wait_for_health
 from validator.evaluation.utils import check_for_lora
 from validator.evaluation.utils import check_lora_has_added_tokens
+from validator.evaluation.utils import configure_eval_logging
+from validator.evaluation.utils import stop_process
 
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ async def _start_swe_env_server(env_base_url: str) -> tuple[Popen | None, asynci
             )
             return proc, log_task
         except Exception as exc:
-            _stop_process(proc, "swe-env-server")
+            stop_process(proc, "swe-env-server")
             log_task.cancel()
             if explicit:
                 raise
@@ -384,8 +384,8 @@ async def _run() -> None:
         result_path.write_text(json.dumps(output), encoding="utf-8")
         logger.info("eval_swe: wrote %s tasks=%s avg=%.6f", result_path, len(eval_tasks), avg_score)
     finally:
-        _stop_process(env_proc, "swe-env-server")
-        _stop_process(sglang_proc, "sglang")
+        stop_process(env_proc, "swe-env-server")
+        stop_process(sglang_proc, "sglang")
         if env_log_task:
             env_log_task.cancel()
         if sglang_log_task:
@@ -393,7 +393,7 @@ async def _run() -> None:
 
 
 def main() -> int:
-    _configure_logging()
+    configure_eval_logging()
     try:
         asyncio.run(_run())
         return 0

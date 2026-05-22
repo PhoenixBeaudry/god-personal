@@ -15,11 +15,11 @@ from validator.evaluation.docker_evaluation import run_evaluation_basilica_text
 
 
 # --- Model Configuration ---
-BASE_MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
+BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 LORA_MODEL_NAME = None  # e.g. "your-org/your-lora-repo"
 
 # --- Evaluation Configuration ---
-GAME_TO_EVAL = "intercode"
+GAME_TO_EVAL = "swe"
 RANDOM_SEED = 42
 NUM_GPUS = 1
 
