@@ -89,7 +89,7 @@ def _deploy_kwargs(
 
 
 async def _deploy(**kwargs):
-    client = basilica.BasilicaClient()
+    client = basilica.BasilicaClient(api_key=os.getenv("BASILICA_API_TOKEN") or os.getenv("BASILICA_API_KEY"))
     deployment = await asyncio.to_thread(client.deploy, **kwargs)
     return client, deployment
 

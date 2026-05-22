@@ -177,7 +177,9 @@ async def run_evaluation_basilica_text(
             base_env["DOCKER_HUB_TOKEN"] = os.getenv("DOCKER_HUB_TOKEN", "")
             base_env["CHUTES_API_KEY"] = os.getenv("CHUTES_API_KEY", "")
             base_env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
-            base_env["BASILICA_API_KEY"] = os.getenv("BASILICA_API_KEY", "")
+            basilica_token = os.getenv("BASILICA_API_TOKEN") or os.getenv("BASILICA_API_KEY", "")
+            base_env["BASILICA_API_TOKEN"] = basilica_token
+            base_env["BASILICA_API_KEY"] = basilica_token
             base_env["R2_BASE_URL"] = os.getenv("R2_BASE_URL", "")
             base_env["R2_PREFIX"] = os.getenv("R2_PREFIX", "")
         if not is_intercode_eval and not is_swe_eval:

@@ -4,8 +4,8 @@ import json
 import logging
 import os
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -318,7 +318,8 @@ def create_basilica_eval_runner_source(command: list[str], result_path: str) -> 
     """
     command_json = json.dumps(command)
     result_path_json = json.dumps(result_path)
-    return f"""import json
+    return f"""from collections import deque
+import json
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -355,9 +356,22 @@ class _Handler(BaseHTTPRequestHandler):
 
 def _run_eval():
     try:
-        proc = subprocess.run(COMMAND, text=True)
-        if proc.returncode != 0:
-            raise RuntimeError(f"Eval command failed with exit code {{proc.returncode}}")
+        tail = deque(maxlen=80)
+        proc = subprocess.Popen(
+            COMMAND,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            tail.append(line.rstrip("\\n"))
+        returncode = proc.wait()
+        if returncode != 0:
+            tail_text = "\\n".join(tail)
+            raise RuntimeError(f"Eval command failed with exit code {{returncode}}. Output tail:\\n{{tail_text}}")
         with open(RESULT_PATH, "r", encoding="utf-8") as f:
             _state["result"] = json.load(f)
         _state["status"] = "completed"
