@@ -112,7 +112,7 @@ class TrainerJob(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     container_name: str | None = None
-    logs: list[str] = []
+    logs: list[str] = Field(default_factory=list)
 
 
 class TrainerTaskLog(TrainerJob):
@@ -178,7 +178,7 @@ class ModelPrepRequest(BaseModel):
     training_data_url: str
     task_type: str = TaskType.INSTRUCTTEXTTASK.value
     augmentation_config: AugmentationConfig | None = None
-    gpu_ids: list[int] = [0]
+    gpu_ids: list[int] = Field(default_factory=lambda: [0])
     reward_functions: list[RewardFunction] | None = None
     env_configs: dict[EnvironmentName, EnvConfig] | None = None
 
@@ -570,7 +570,7 @@ class GrpoTaskDetails(TaskDetails):
 
 class EnvironmentTaskDetails(TaskDetails):
     task_type: TaskType = TaskType.ENVIRONMENTTASK
-    environment_names: list[EnvironmentName] = []
+    environment_names: list[EnvironmentName] = Field(default_factory=list)
     base_model_repository: str
     ds_repo: str
 
@@ -638,6 +638,8 @@ class BenchmarkResult(BaseModel):
     dataset: str
     task_type: str
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class BenchmarkRootTaskResults(BaseModel):
     """Results for a specific benchmark root task"""
@@ -647,6 +649,8 @@ class BenchmarkRootTaskResults(BaseModel):
     dataset: str
     task_type: str
     results: list[BenchmarkResult]
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class RewardFunctionInfo(BaseModel):

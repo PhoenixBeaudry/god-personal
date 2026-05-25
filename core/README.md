@@ -4,7 +4,7 @@
 
 - `models/` defines shared payloads, task types, network/status models, tournament models, scoring models, and model-prep models.
 - `datasets/` contains shared dataset adapters, diffusion dataset prep, examples, and the tournament dataset whitelist.
-- `downloads.py` and `git.py` contain small shared IO helpers used across validator, trainer, and ops.
+- `downloads.py`, `git.py`, and `model_artifacts.py` contain small shared helpers used across validator, trainer, and ops.
 - `logging.py` provides shared structured logging, contextual tags, and container log streaming used by validator, trainer, ops, and tests.
 - `training_config.py` builds Axolotl-compatible dataset/config entries from shared dataset models.
 - `training_templates/` contains static Axolotl, diffusion, and PvP prompt templates.

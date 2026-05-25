@@ -73,7 +73,7 @@ async def fetch_task_details(task_id: str):
 
 async def run_evaluation_from_task_id(
     task_id: str,
-    gpu_ids: List[int] = [0],
+    gpu_ids: Optional[List[int]] = None,
     models: Optional[List[str]] = None,
 ):
     """
@@ -84,6 +84,7 @@ async def run_evaluation_from_task_id(
         gpu_ids: List of GPU IDs to use for evaluation
         models: Optional list of specific models to evaluate instead of using hotkey details
     """
+    gpu_ids = [0] if gpu_ids is None else gpu_ids
     task_details = await fetch_task_details(task_id)
     logger.info(f"Retrieved task details for task {task_id}")
 

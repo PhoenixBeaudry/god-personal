@@ -12,7 +12,7 @@ from core.models.model_prep_models import AugmentationConfig
 from core.models.payload_models import EnvConfig
 from core.models.payload_models import ModelPrepRequest
 from core.models.payload_models import ModelPrepResponse
-from validator.shared.constants import MODEL_PREP_ENDPOINT
+from core.service_paths import MODEL_PREP_ENDPOINT
 
 
 logger = get_logger(__name__)

@@ -267,7 +267,7 @@ async def get_all_node_stats_batched(hotkeys: list[str], psql_db: PSQLDB) -> dic
     period_mapping = AllNodeStats.get_periods_sql_mapping()
 
     async with await psql_db.connection() as connection:
-        query = f"""
+        query = rf"""
         WITH periods AS (
             SELECT unnest($3::text[]) as interval
         ),

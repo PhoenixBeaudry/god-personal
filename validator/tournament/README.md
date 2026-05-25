@@ -8,6 +8,7 @@ Tournament code is organized around the three supported tournament families: tex
 - `tournament_manager.py` coordinates tournament lifecycle state.
 - `task_creator.py` creates tournament tasks for text, image, and environment rounds.
 - `orchestrator.py` schedules trainer work for tournament submissions.
+- `trainer_client.py` contains the HTTP client helpers used to talk to trainer services.
 - `round_results.py` determines group, knockout, and boss-round winners.
 - `environment_results.py` handles environment-specific group advancement and boss comparisons.
 - `task_results.py`, `thresholds.py`, and `champions.py` load score rows, apply progressive thresholds, and resolve compatibility winner fields.

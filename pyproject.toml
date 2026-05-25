@@ -100,7 +100,7 @@ include = [
 line-length = 130
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "B006"]
 ignore = ["E402"]
 
 [tool.ruff.lint.isort]

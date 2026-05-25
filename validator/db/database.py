@@ -30,22 +30,19 @@ def _get_connection_string_from_env() -> str:
     if postgres_url:
         return postgres_url
 
-    # FIXME: make these proper conditions with exceptions. Sometimes `assert` can be ignored.
-    assert username is not None
-    assert password is not None
-    assert host is not None
-    assert port is not None
-    assert database is not None
-
-    port = int(port)
-
     if not all([username, password, host, port, database]):
         raise ValueError(
-            "All of POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_PORT, and POSTGRES_HOST must be set",
-            f"But i got: username; {username}, password; *****, host; {host}, port; {port}, database; {database}",
+            "All of POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_PORT, and POSTGRES_HOST must be set. "
+            f"Got username={username!r}, password={'***' if password else None}, host={host!r}, port={port!r}, "
+            f"database={database!r}."
         )
 
-    return _get_connection_string(username, password, host, port, database)
+    try:
+        port_number = int(port)
+    except ValueError as exc:
+        raise ValueError(f"POSTGRES_PORT must be an integer, got {port!r}.") from exc
+
+    return _get_connection_string(username, password, host, port_number, database)
 
 
 def _get_connection_string(username: str, password: str, host: str, port: int, database: str) -> str:

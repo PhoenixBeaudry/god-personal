@@ -299,12 +299,12 @@ class TournamentAuditData(BaseModel):
     text_tournament_data: TournamentResultsWithWinners | None = None
     image_tournament_data: TournamentResultsWithWinners | None = None
     environment_tournament_data: TournamentResultsWithWinners | None = None
-    participants: list[str] = []
+    participants: list[str] = Field(default_factory=list)
     text_tournament_weight: float = 0.0
     image_tournament_weight: float = 0.0
     environment_tournament_weight: float = 0.0
     burn_weight: float = 0.0
-    weekly_participation: list["HotkeyTaskParticipation"] = []
+    weekly_participation: list["HotkeyTaskParticipation"] = Field(default_factory=list)
 
 
 class BossRoundTaskCompletion(BaseModel):
@@ -433,6 +433,8 @@ class BenchmarkTaskCopy(BaseModel):
     is_organic: bool
     task_created_at: datetime | None = None
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class BenchmarkInstance(BaseModel):
     """A single benchmark instance (copy task) with its results"""
@@ -456,6 +458,8 @@ class BenchmarkTimeline(BaseModel):
     is_organic: bool
     task_created_at: datetime | None = None
     benchmarks: list[BenchmarkInstance] = Field(default_factory=list)
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class BenchmarkTimelineResponse(BaseModel):
@@ -504,7 +508,7 @@ class TournamentWeightsResponse(BaseModel):
     burn_data: TournamentBurnData
     text_top_miners: list[MinerEmissionWeight]
     image_top_miners: list[MinerEmissionWeight]
-    environment_top_miners: list[MinerEmissionWeight] = []
+    environment_top_miners: list[MinerEmissionWeight] = Field(default_factory=list)
 
 
 class WeightProjection(BaseModel):
@@ -539,4 +543,4 @@ class BossBattleResponse(BaseModel):
     image_tournament_id: str | None
     image_performance_differences: list[TaskPerformanceDifference]
     environment_tournament_id: str | None = None
-    environment_performance_differences: list[TaskPerformanceDifference] = []
+    environment_performance_differences: list[TaskPerformanceDifference] = Field(default_factory=list)

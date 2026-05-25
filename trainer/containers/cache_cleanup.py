@@ -4,8 +4,8 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 
+from core.model_artifacts import get_anonymous_model_dir
 from trainer import constants as cst
-from trainer.model_artifacts import get_anonymous_model_dir
 
 
 TASK_HISTORY_FILE = Path(cst.TASKS_FILE_PATH)

@@ -182,8 +182,8 @@ class EnvRawTask(RawTask):
     Environment task data as stored in the database. It expand the RawTask with fields from the EnvTask table.
     """
 
-    environment_names: list[EnvironmentName] = []
-    environment_weights: list[EnvironmentWeight] = []
+    environment_names: list[EnvironmentName] = Field(default_factory=list)
+    environment_weights: list[EnvironmentWeight] = Field(default_factory=list)
     eval_seed: int | None = None
     task_type: TaskType = TaskType.ENVIRONMENTTASK
     synthetic_data: str | None = None
@@ -322,9 +322,7 @@ class NodeAggregationResult(BaseModel):
     task_raw_scores: list[float] = Field(default_factory=list)
     hotkey: str
 
-    class Config:
-        validate_assignment = True
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
 
 class Submission(BaseModel):
@@ -336,6 +334,8 @@ class Submission(BaseModel):
     model_hash: str | None = None
     created_on: datetime | None = None
     updated_on: datetime | None = None
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 class MinerResults(BaseModel):

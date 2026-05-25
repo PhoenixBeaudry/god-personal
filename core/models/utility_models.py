@@ -54,6 +54,8 @@ class MinerSubmission(BaseModel):
     repo: str
     model_hash: str | None = None
 
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class MinerTaskResult(BaseModel):
     hotkey: str
@@ -102,7 +104,7 @@ class RewardFunction(BaseModel):
 
 class GrpoDatasetType(BaseModel):
     field_prompt: str | None = None
-    reward_functions: list[RewardFunction] | None = []
+    reward_functions: list[RewardFunction] | None = Field(default_factory=list)
     extra_column: str | None = None
 
 

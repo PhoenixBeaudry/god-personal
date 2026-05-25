@@ -9,7 +9,7 @@ from core.models.utility_models import ImageTextPair
 from core.models.utility_models import RewardFunction
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
-from validator.db.sql import tasks as tasks_sql
+from validator.db.sql import task_rows
 from validator.shared.models import GrpoRawTask
 from validator.shared.models import ImageTask
 from validator.shared.models import InstructTextRawTask
@@ -44,7 +44,7 @@ def _base_task_data(task_id, task_type: TaskType | str) -> dict:
 @pytest.mark.asyncio
 async def test_build_task_from_data_creates_raw_text_task_from_string_type():
     task_id = uuid4()
-    task = await tasks_sql._build_task_from_data(
+    task = await task_rows.build_task_from_data(
         TaskType.INSTRUCTTEXTTASK.value,
         {
             **_base_task_data(task_id, TaskType.INSTRUCTTEXTTASK.value),
@@ -71,9 +71,7 @@ async def test_build_task_from_data_loads_image_pairs_for_public_task(monkeypatc
         calls.append((received_task_id, received_psql_db, received_connection))
         return [ImageTextPair(image_url="s3://image", text_url="s3://text")]
 
-    monkeypatch.setattr(tasks_sql, "get_image_text_pairs", get_image_text_pairs)
-
-    task = await tasks_sql._build_task_from_data(
+    task = await task_rows.build_task_from_data(
         TaskType.IMAGETASK,
         {
             **_base_task_data(task_id, TaskType.IMAGETASK),
@@ -84,6 +82,7 @@ async def test_build_task_from_data_loads_image_pairs_for_public_task(monkeypatc
         psql_db,
         connection,
         public=True,
+        image_text_pairs_loader=get_image_text_pairs,
     )
 
     assert isinstance(task, ImageTask)
@@ -104,9 +103,7 @@ async def test_build_task_from_data_loads_grpo_reward_functions(monkeypatch):
         calls.append((received_task_id, received_psql_db, received_connection))
         return reward_functions
 
-    monkeypatch.setattr(tasks_sql, "get_reward_functions", get_reward_functions)
-
-    task = await tasks_sql._build_task_from_data(
+    task = await task_rows.build_task_from_data(
         TaskType.GRPOTASK.value,
         {
             **_base_task_data(task_id, TaskType.GRPOTASK.value),
@@ -117,6 +114,7 @@ async def test_build_task_from_data_loads_grpo_reward_functions(monkeypatch):
         task_id,
         psql_db,
         connection,
+        reward_functions_loader=get_reward_functions,
     )
 
     assert isinstance(task, GrpoRawTask)
@@ -129,7 +127,7 @@ async def test_build_task_from_data_loads_grpo_reward_functions(monkeypatch):
 async def test_get_specific_task_updates_filters_to_table_fields_and_excludes_task_id():
     connection = _FakeConnection({"task_id", "field_prompt", "field_system"})
 
-    updates = await tasks_sql._get_specific_task_updates(
+    updates = await task_rows.get_specific_task_updates(
         "dpo_tasks",
         {"task_id": "ignored", "field_prompt": "prompt", "model_id": "base"},
         connection,
@@ -143,7 +141,7 @@ async def test_update_task_specific_fields_builds_one_parameterized_update():
     task_id = uuid4()
     connection = _FakeConnection({"task_id", "field_prompt", "field_system"})
 
-    await tasks_sql._update_task_specific_fields(
+    await task_rows.update_task_specific_fields(
         connection,
         task_id,
         "dpo_tasks",

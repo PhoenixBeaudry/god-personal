@@ -22,7 +22,7 @@ from validator.shared.config import Config
 from validator.shared.constants import EMISSION_BURN_HOTKEY
 from validator.shared.models import AnyTypeRawTask
 from validator.shared.models import RawTask
-from validator.shared.task_config_models import get_task_config
+from validator.tasks.config import get_task_config
 from validator.tasks.requests import get_model_num_params
 
 

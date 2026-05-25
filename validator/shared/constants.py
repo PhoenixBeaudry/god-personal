@@ -25,12 +25,6 @@ VALI_CONFIG_PATH = "validator/resources/test_axolotl.yml"
 NULL_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
 
 
-# External trainer and tournament participant endpoint paths.
-START_TRAINING_ENDPOINT = "/start_training/"
-START_TRAINING_IMAGE_ENDPOINT = "/start_training_image/"
-START_TRAINING_GRPO_ENDPOINT = "/start_training_grpo/"
-TRAINING_REPO_ENDPOINT = "/training_repo"
-
 DEV_CONTENT_BASE_URL = "https://dev.content.gradients.io"
 PROD_CONTENT_BASE_URL = "https://content.gradients.io"
 
@@ -298,15 +292,6 @@ STANDARD_DPO_PROMPT_COLUMN = "prompt"
 STANDARD_DPO_CHOSEN_COLUMN = "chosen"
 STANDARD_DPO_REJECTED_COLUMN = "rejected"
 STANDARD_CHAT_MESSAGES_COLUMN = "conversations"
-
-# Trainer endpoints
-
-PROXY_TRAINING_IMAGE_ENDPOINT = "/v1/trainer/start_training"
-MODEL_PREP_ENDPOINT = "/v1/trainer/model_prep"
-MODEL_PREP_STATUS_ENDPOINT = "/v1/trainer/model_prep/{task_id}"
-GET_GPU_AVAILABILITY_ENDPOINT = "/v1/trainer/get_gpu_availability"
-TASK_DETAILS_ENDPOINT = "/v1/trainer/{task_id}"
-GET_RECENT_TASKS_ENDPOINT = "/v1/trainer/get_recent_tasks"
 
 # Dstack API endpoints
 DSTACK_RUNS_APPLY_ENDPOINT = "/api/project/{project}/runs/apply"

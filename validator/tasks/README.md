@@ -3,6 +3,7 @@
 This package owns task preparation before work is sent to the trainer.
 
 - `task_prep.py` prepares text and image datasets.
+- `config.py` maps task types to preparation and trainer-request functions.
 - `details.py` shapes API task details and hides sensitive in-flight data.
 - `augmentation.py` decides when optional model augmentation is enabled.
 - `dataset_columns.py` validates user-supplied dataset column mappings.

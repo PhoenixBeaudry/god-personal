@@ -43,7 +43,7 @@ Text and image tournaments use group rounds when the participant count is large,
 
 The trainer receives validator requests, launches training containers, tracks task history, and reports recent jobs. It also handles model prep jobs used for augmentation and baseline statistics.
 
-Important trainer endpoints are defined in `validator/shared/constants.py`:
+Important trainer endpoint paths are defined in `core/service_paths.py`:
 
 - `/v1/trainer/start_training`
 - `/v1/trainer/model_prep`

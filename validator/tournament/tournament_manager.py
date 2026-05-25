@@ -30,6 +30,7 @@ from core.models.tournament_models import TournamentType
 from core.models.tournament_models import generate_round_id
 from core.models.tournament_models import generate_tournament_id
 from core.models.utility_models import TaskStatus
+from core.service_paths import TRAINING_REPO_ENDPOINT
 from validator.db.database import PSQLDB
 from validator.db.sql import tasks as task_sql
 from validator.db.sql.nodes import get_all_nodes
@@ -822,7 +823,7 @@ async def populate_tournament_participants(tournament_id: str, config: Config, p
 async def _get_miner_training_repo(node: Node, config: Config, tournament_type: TournamentType) -> TrainingRepoResponse | None:
     """Get training repo from a miner, similar to how submissions are fetched in the main validator cycle."""
     try:
-        url = f"{cst.TRAINING_REPO_ENDPOINT}/{tournament_type.value}"
+        url = f"{TRAINING_REPO_ENDPOINT}/{tournament_type.value}"
         response = await process_non_stream_fiber_get(url, config, node)
 
         if response and isinstance(response, dict):

@@ -14,6 +14,12 @@ from core.models.payload_models import TrainerJob
 from core.models.payload_models import TrainerProxyRequest
 from core.models.payload_models import TrainerTaskLog
 from core.models.utility_models import GPUInfo
+from core.service_paths import GET_GPU_AVAILABILITY_ENDPOINT
+from core.service_paths import GET_RECENT_TASKS_ENDPOINT
+from core.service_paths import MODEL_PREP_ENDPOINT
+from core.service_paths import MODEL_PREP_STATUS_ENDPOINT
+from core.service_paths import PROXY_TRAINING_IMAGE_ENDPOINT
+from core.service_paths import TASK_DETAILS_ENDPOINT
 from trainer import constants as cst
 from trainer.containers.dataset_cache import download_whitelisted_datasets
 from trainer.host import are_gpus_available
@@ -32,12 +38,6 @@ from trainer.job_state import log_task
 from trainer.runtime import run_model_prep_container
 from trainer.runtime import start_training_task
 from trainer.telemetry import logger
-from validator.shared.constants import GET_GPU_AVAILABILITY_ENDPOINT
-from validator.shared.constants import GET_RECENT_TASKS_ENDPOINT
-from validator.shared.constants import MODEL_PREP_ENDPOINT
-from validator.shared.constants import MODEL_PREP_STATUS_ENDPOINT
-from validator.shared.constants import PROXY_TRAINING_IMAGE_ENDPOINT
-from validator.shared.constants import TASK_DETAILS_ENDPOINT
 
 
 load_task_history()

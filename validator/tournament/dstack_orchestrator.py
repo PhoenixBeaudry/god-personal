@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import validator.tournament.constants as cst
 from core.logging import LogContext
 from core.logging import get_logger
+from core.model_artifacts import get_anonymous_model_dir
 from core.models.payload_models import DstackRunStatus
 from core.models.tournament_models import GpuRequirement
 from core.models.utility_models import Backend
@@ -22,7 +23,6 @@ from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
 from core.models.utility_models import is_image_task
 from core.models.utility_models import normalize_task_type
-from trainer.model_artifacts import get_anonymous_model_dir
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.evaluation.scoring import _get_dataset_type

@@ -214,7 +214,7 @@ class PvPPairResult(PvPBaseModel):
         return _canonical_pair_key(self.hotkey_a, self.hotkey_b)
 
 
-class PvPPairDbRow(BaseModel):
+class PvPPairDbRow(PvPBaseModel):
     """A persisted PvP pair result row from the database."""
 
     task_id: str

@@ -5,8 +5,6 @@ import re
 import uuid
 
 import docker
-from docker.errors import APIError
-from docker.errors import BuildError
 from docker.models.containers import Container
 
 import core.constants as core_cst
@@ -14,7 +12,7 @@ import trainer.training_paths as train_paths
 from core.constants import EnvironmentName
 from core.logging import get_all_context_tags
 from core.logging import stream_container_logs
-from core.logging import stream_image_build_logs
+from core.model_artifacts import get_anonymous_model_dir
 from core.models.model_prep_models import BaselineStats
 from core.models.payload_models import EnvConfig
 from core.models.payload_models import ModelPrepResponse
@@ -30,89 +28,18 @@ from core.models.utility_models import is_image_task
 from core.models.utility_models import normalize_task_type
 from core.models.utility_models import task_type_for_dataset_type
 from trainer import constants as cst
+from trainer.docker_runtime import build_docker_image
+from trainer.docker_runtime import calculate_container_resources
+from trainer.docker_runtime import create_volumes_if_dont_exist
+from trainer.docker_runtime import delete_image_and_cleanup
+from trainer.docker_runtime import ensure_internal_network
 from trainer.host import build_wandb_env
 from trainer.host import extract_container_error
 from trainer.job_state import complete_task
 from trainer.job_state import log_task
 from trainer.job_state import update_container_name
 from trainer.job_state import update_wandb_url
-from trainer.model_artifacts import get_anonymous_model_dir
 from trainer.telemetry import logger
-
-
-# logger = get_logger(__name__)
-
-
-def ensure_internal_network(name: str = cst.INTERNAL_BRIDGE_NAME):
-    client = docker.from_env()
-    try:
-        client.networks.get(name)
-    except docker.errors.NotFound:
-        client.networks.create(name, driver="bridge", internal=True)
-
-
-def calculate_container_resources(gpu_ids: list[int]) -> tuple[str, int]:
-    """Calculate memory limit and CPU limit based on GPU count.
-
-    Returns:
-        tuple: (memory_limit_str, cpu_limit_nanocpus)
-    """
-    num_gpus = len(gpu_ids)
-    memory_limit = f"{num_gpus * cst.MEMORY_PER_GPU_GB}g"
-    cpu_limit_nanocpus = num_gpus * cst.CPUS_PER_GPU * 1_000_000_000
-
-    logger.info(f"Allocating resources for {num_gpus} GPUs: {memory_limit} memory, {num_gpus * cst.CPUS_PER_GPU} CPUs")
-    return memory_limit, cpu_limit_nanocpus
-
-
-def build_docker_image(
-    dockerfile_path: str,
-    log_labels: dict[str, str] | None = None,
-    context_path: str = ".",
-    is_image_task: bool = False,
-    tag: str = None,
-    no_cache: bool = True,
-) -> tuple[str, str | None]:
-    client: docker.DockerClient = docker.from_env()
-
-    if tag is None:
-        tag = f"standalone-image-trainer:{uuid.uuid4()}" if is_image_task else f"standalone-text-trainer:{uuid.uuid4()}"
-
-    logger.info(f"Building Docker image '{tag}'...", extra=log_labels)
-
-    try:
-        build_output = client.api.build(
-            path=context_path,
-            dockerfile=dockerfile_path,
-            tag=tag,
-            nocache=no_cache,
-            decode=True,
-        )
-        stream_image_build_logs(build_output, logger=logger, log_context=log_labels)
-
-        logger.info("Docker image built successfully.", extra=log_labels)
-        return tag, None
-    except (BuildError, APIError) as e:
-        logger.error(f"Docker build failed: {str(e)}", extra=log_labels)
-        return None, str(e)
-
-
-def delete_image_and_cleanup(tag: str):
-    client = docker.from_env()
-    try:
-        client.images.remove(image=tag, force=True)
-        logger.info(f"Deleted Docker image with tag: {tag}")
-    except docker.errors.ImageNotFound:
-        logger.error(f"No Docker image found with tag: {tag}")
-    except Exception as e:
-        logger.error(f"Failed to delete image '{tag}': {e}")
-
-    try:
-        client.images.prune(filters={"dangling": True})
-        client.api.prune_builds()
-        logger.info("Cleaned up dangling images and build cache.")
-    except Exception as e:
-        logger.error(f"Cleanup failed: {e}")
 
 
 async def wait_for_env_container_ip(environment_server_container) -> str:
@@ -159,9 +86,10 @@ async def run_trainer_container_image(
     trigger_word: str | None = None,
     baseline_stats: BaselineStats | None = None,
     log_labels: dict[str, str] | None = None,
-    gpu_ids: list[int] = [0],
+    gpu_ids: list[int] | None = None,
 ) -> Container:
     client: docker.DockerClient = docker.from_env()
+    gpu_ids = [0] if gpu_ids is None else gpu_ids
 
     await asyncio.to_thread(ensure_internal_network)
 
@@ -252,11 +180,12 @@ async def run_trainer_container_text(
     hours_to_complete: float,
     baseline_stats: BaselineStats | None = None,
     log_labels: dict[str, str] | None = None,
-    gpu_ids: list[int] = [0],
+    gpu_ids: list[int] | None = None,
     env_server_urls: str | None = None,
     miner_datasets: list[str] | None = None,
 ) -> Container:
     client: docker.DockerClient = docker.from_env()
+    gpu_ids = [0] if gpu_ids is None else gpu_ids
 
     await asyncio.to_thread(ensure_internal_network)
 
@@ -338,21 +267,6 @@ async def run_trainer_container_text(
             else:
                 logger.error(f"Failed to start text trainer container after {max_retries} attempts: {e}", extra=log_labels)
                 raise
-
-
-def _create_volumes_sync():
-    client: docker.DockerClient = docker.from_env()
-    volume_names = cst.VOLUME_NAMES
-    for volume_name in volume_names:
-        try:
-            client.volumes.get(volume_name)
-        except docker.errors.NotFound:
-            client.volumes.create(name=volume_name)
-            logger.info(f"Volume '{volume_name}' created.")
-
-
-async def create_volumes_if_dont_exist():
-    await asyncio.to_thread(_create_volumes_sync)
 
 
 def run_downloader_container(
@@ -504,7 +418,7 @@ def run_model_prep_container(
     training_data_url: str,
     task_type: TaskType = TaskType.INSTRUCTTEXTTASK,
     augmentation_config=None,
-    gpu_ids: list[int] = [0],
+    gpu_ids: list[int] | None = None,
     reward_functions=None,
     env_configs: dict[EnvironmentName, EnvConfig] | None = None,
     log_labels: dict[str, str] | None = None,
@@ -512,6 +426,7 @@ def run_model_prep_container(
     """Run model prep container: augment model + compute baseline stats.
     Downloads model to cache via downloader first. For env tasks, starts env server sidecars."""
     client = docker.from_env()
+    gpu_ids = [0] if gpu_ids is None else gpu_ids
     env_containers: list[Container] = []
 
     # Download model to cache volume

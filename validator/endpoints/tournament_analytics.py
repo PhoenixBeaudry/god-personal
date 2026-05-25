@@ -32,6 +32,7 @@ from core.models.tournament_models import TournamentResultsWithWinners
 from core.models.tournament_models import TournamentStatus
 from core.models.tournament_models import TournamentType
 from core.models.utility_models import TaskStatus
+from core.service_paths import TASK_DETAILS_ENDPOINT
 from validator.db.sql import benchmark_tasks
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
@@ -39,7 +40,6 @@ from validator.evaluation.tournament_scoring import calculate_tournament_type_sc
 from validator.shared.config import Config
 from validator.shared.constants import LATEST_TOURNAMENTS_CACHE_KEY
 from validator.shared.constants import LATEST_TOURNAMENTS_CACHE_TTL
-from validator.shared.constants import TASK_DETAILS_ENDPOINT
 from validator.shared.dependencies import get_api_key
 from validator.shared.dependencies import get_config
 from validator.shared.weight_setting import get_tournament_burn_details

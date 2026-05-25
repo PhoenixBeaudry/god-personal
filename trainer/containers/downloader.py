@@ -12,6 +12,7 @@ from huggingface_hub import snapshot_download
 
 import trainer.training_paths as train_paths
 from core.downloads import download_s3_file
+from core.model_artifacts import get_anonymous_model_dir
 from core.models.utility_models import TRAINER_TASK_TYPES
 from core.models.utility_models import FileFormat
 from core.models.utility_models import ImageModelType
@@ -19,7 +20,6 @@ from core.models.utility_models import is_environment_task
 from core.models.utility_models import is_image_task
 from core.models.utility_models import normalize_task_type
 from trainer import constants as cst
-from trainer.model_artifacts import get_anonymous_model_dir
 from trainer.model_artifacts import scrub_model_identity
 
 
