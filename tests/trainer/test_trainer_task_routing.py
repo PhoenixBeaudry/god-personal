@@ -101,7 +101,7 @@ def test_get_dockerfile_path_routes_text_trainers_to_text_dockerfile(tmp_path):
     assert get_dockerfile_path(TaskType.ENVIRONMENTTASK, training_data, str(repo_root)) == str(dockerfile)
 
 
-def test_get_dockerfile_path_rejects_repos_without_legacy_dockerfiles(tmp_path):
+def test_get_dockerfile_path_rejects_submitted_repos_without_required_dockerfiles(tmp_path):
     training_data = _text_request(InstructTextDatasetType())
 
     with pytest.raises(FileNotFoundError, match="dockerfiles/standalone-text-trainer.dockerfile"):

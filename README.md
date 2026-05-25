@@ -41,8 +41,8 @@ python ops/validator_ops/run_evaluation.py --task_id <task_id> --models <model_r
 
 - `core/` - shared models, constants, logging, dataset helpers, training templates, and compatibility contracts.
 - `validator/` - validator API, tournament orchestration, task creation, evaluation, scoring, infrastructure adapters, shared validator models, and weight setting.
-- `trainer/` - trainer API, GPU job tracking, model prep, runtime helpers, and Docker training/sidecar entrypoints.
-- `ops/` - operational assets: Dockerfiles, compose stacks, observability config, auditor scripts, local examples, and one-off tools.
+- `trainer/` - trainer API, GPU job tracking, model prep, runtime helpers, and Docker sidecar entrypoints.
+- `ops/` - operational assets: Dockerfiles, compose stacks, observability config, auditor scripts, manual probes, and one-off tools.
 - `tests/` - source-aligned tests for core, trainer, validator DB, tasks, lifecycle, evaluation, and tournaments.
 - `docs/guide.md` - the canonical docs.
 

@@ -9,7 +9,7 @@ Coding agents working on the repository should read `AGENTS.md` for repo-specifi
 The production surface is intentionally small:
 
 - `validator/` runs task intake, tournament orchestration, evaluation, scoring, and weight setting. Validator-wide config, constants, and models live in `validator/shared/`; external service adapters live in `validator/infrastructure/`.
-- `trainer/` runs training jobs, model prep jobs, GPU assignment state, logs, and model upload helpers. Docker training and sidecar entrypoints live in `trainer/containers/`.
+- `trainer/` runs submitted training repositories, model prep jobs, GPU assignment state, logs, and model upload helpers. Docker sidecar entrypoints live in `trainer/containers/`; task-specific training entrypoints live in external submitted repositories.
 - `core/` contains shared API models, enums, dataset contracts, training templates, and compatibility constants.
 - `ops/` contains Docker assets, compose stacks, observability config, auditor scripts, examples, and manual tools.
 
@@ -441,7 +441,7 @@ python ops/validator_ops/run_evaluation.py --task_id <task_id>
 python ops/validator_ops/run_evaluation.py --task_id <task_id> --models <model_repo>
 ```
 
-For local training task examples, see `ops/examples/`.
+The old local miner training task runners have been removed. Submitted training repositories are external to this repo and must follow the training repository contract above.
 
 ## Static References
 

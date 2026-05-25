@@ -8,7 +8,6 @@ This folder holds everything that helps run, build, inspect, or reproduce the sy
 - `validator_ops/` - validator/auditor startup, auto-update, Grafana setup, and local evaluation tools.
 - `trainer_ops/` - trainer host service files and deployment helpers.
 - `auditing/` - auditor workflow scripts.
-- `examples/` - local task runners for text, image, and environment training jobs.
 - `tools/config/` - interactive validator, auditor, and trainer `.env` generation.
 - `tools/tournament/` - tournament status, completion, and task recovery tools.
 - `tools/evaluation/` - manual environment/GRPO evaluation probes and reward-function helpers.

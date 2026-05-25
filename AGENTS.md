@@ -8,8 +8,8 @@ G.O.D is the validator, trainer, tournament, and auditing system for Gradients o
 
 - `core/` contains shared contracts used by both validator and trainer.
 - `validator/` contains the public API, DB access, task lifecycle, evaluation, tournament orchestration, infrastructure adapters, and validator-only shared models/config.
-- `trainer/` contains the trainer API, GPU/job state, model prep, Docker runtime helpers, and container entrypoints.
-- `ops/` contains Dockerfiles, compose stacks, observability config, operator scripts, local examples, and one-off tools.
+- `trainer/` contains the trainer API, GPU/job state, model prep, Docker runtime helpers, and sidecar container entrypoints.
+- `ops/` contains Dockerfiles, compose stacks, observability config, operator scripts, manual probes, and one-off tools.
 - `tests/` mirrors the source tree.
 - `docs/guide.md` is the canonical human-facing guide. Subtree `README.md` files are local maps, not replacement docs.
 
