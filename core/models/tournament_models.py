@@ -1,6 +1,7 @@
 import secrets
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from typing import NamedTuple
 from uuid import UUID
 
@@ -11,16 +12,14 @@ from pydantic import Field
 from pydantic import field_validator
 
 from core.models.payload_models import TrainingRepoResponse
-from core.constants import EnvironmentName
-from core.models.scoring_models import EnvironmentWeight
-from core.models.scoring_models import EvalHotkeyResults
-from core.models.scoring_models import GroupStagePoints
-from core.models.scoring_models import PairwiseOutcome
+from core.models.scoring_models import EnvironmentWeight as EnvironmentWeight  # noqa: F401
+from core.models.scoring_models import EvalHotkeyResults as EvalHotkeyResults  # noqa: F401
+from core.models.scoring_models import GroupStagePoints as GroupStagePoints  # noqa: F401
+from core.models.scoring_models import PairwiseOutcome as PairwiseOutcome  # noqa: F401
 from core.models.scoring_models import TournamentScore
-from core.models.scoring_models import TournamentTypeResult
+from core.models.scoring_models import TournamentTypeResult as TournamentTypeResult  # noqa: F401
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
-from validator.core.models import AnyTypeRawTask
 
 
 class TrainingRepoInfo(NamedTuple):
@@ -95,8 +94,14 @@ class TournamentData(BaseModel):
         "score = loss, so lower is better. Higher diff = better perf = less burn.",
     )
     diff_report: str | None = Field(default=None, description="Optional S3 URL for the winner-vs-previous-boss diff report.")
-    winner_model_repo: str | None = Field(default=None, description="HF repo of the winning trained model (for next tournament's final round)")
-    winner_model_base: str | None = Field(default=None, description="Base model the winner was trained from (for compatibility check)")
+    winner_model_repo: str | None = Field(
+        default=None,
+        description="HF repo of the winning trained model (for next tournament's final round)",
+    )
+    winner_model_base: str | None = Field(
+        default=None,
+        description="Base model the winner was trained from (for compatibility check)",
+    )
     updated_at: datetime | None = Field(
         default=None,
         description="Timestamp when the tournament was last updated (typically when it completed). "
@@ -199,7 +204,7 @@ class TaskTrainingAssignment(BaseModel):
 
 
 class TournamentTaskTraining(BaseModel):
-    task: AnyTypeRawTask
+    task: Any
     hotkey: str
     training_status: TrainingStatus
     n_training_attempts: int

@@ -10,8 +10,9 @@ from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 import validator.tournament.constants as tourn_cst
+from core.logging import get_logger
 from core.models.payload_models import GpuRequirementSummary
 from core.models.payload_models import TournamentGpuRequirementsResponse
 from core.models.tournament_models import ActiveTournamentInfo
@@ -31,24 +32,25 @@ from core.models.tournament_models import TournamentResultsWithWinners
 from core.models.tournament_models import TournamentStatus
 from core.models.tournament_models import TournamentType
 from core.models.utility_models import TaskStatus
-from validator.core.config import Config
-from validator.core.constants import LATEST_TOURNAMENTS_CACHE_KEY
-from validator.core.constants import LATEST_TOURNAMENTS_CACHE_TTL
-from validator.core.constants import TASK_DETAILS_ENDPOINT
-from validator.core.dependencies import get_api_key
-from validator.core.dependencies import get_config
-from validator.core.weight_setting import get_tournament_burn_details
 from validator.db.sql import benchmark_tasks
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.evaluation.tournament_scoring import calculate_tournament_type_scores_from_data
+from validator.shared.config import Config
+from validator.shared.constants import LATEST_TOURNAMENTS_CACHE_KEY
+from validator.shared.constants import LATEST_TOURNAMENTS_CACHE_TTL
+from validator.shared.constants import TASK_DETAILS_ENDPOINT
+from validator.shared.dependencies import get_api_key
+from validator.shared.dependencies import get_config
+from validator.shared.weight_setting import get_tournament_burn_details
 from validator.tournament.performance_calculator import calculate_boss_round_performance_differences
-from validator.tournament.performance_calculator import get_tournament_performance_data
+from validator.tournament.performance_calculator import get_legacy_sync_performance_data
+from validator.tournament.resources import get_tournament_gpu_requirement
+from validator.tournament.specs import get_tournament_schedule
+from validator.tournament.specs import get_tournament_spec
+from validator.tournament.specs import tournament_types
 from validator.tournament.tournament_manager import _calculate_next_tournament_start_time
-from validator.tournament.tournament_manager import _get_tournament_schedule
 from validator.tournament.tournament_manager import get_tournament_completion_time
-from validator.tournament.utils import get_tournament_gpu_requirement
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)
@@ -167,7 +169,7 @@ async def get_tournament_details(
                     logger.warning(f"Failed to get boss round performance data: {e}")
 
             try:
-                sync_performance = await get_tournament_performance_data(tournament.tournament_id, config.psql_db)
+                sync_performance = await get_legacy_sync_performance_data(tournament.tournament_id, config.psql_db)
             except Exception as e:
                 logger.warning(f"Failed to get sync performance data: {e}")
 
@@ -181,8 +183,8 @@ async def get_tournament_details(
             participants=_participants_without_github_tokens(participants),
             rounds=detailed_rounds,
             final_scores=tournament_type_result.scores,
-            text_tournament_weight=cts.TOURNAMENT_TEXT_WEIGHT,
-            image_tournament_weight=cts.TOURNAMENT_IMAGE_WEIGHT,
+            text_tournament_weight=get_tournament_spec(TournamentType.TEXT).base_weight,
+            image_tournament_weight=get_tournament_spec(TournamentType.IMAGE).base_weight,
             boss_round_performance=boss_round_performance,
             sync_performance=sync_performance,
         )
@@ -205,29 +207,25 @@ async def get_latest_tournaments_details(
             cached_dict = json.loads(cached_data)
             return LatestTournamentsDetailsResponse.model_validate(cached_dict)
 
-        latest_text = await tournament_sql.get_latest_completed_tournament(config.psql_db, TournamentType.TEXT)
-        latest_image = await tournament_sql.get_latest_completed_tournament(config.psql_db, TournamentType.IMAGE)
-        latest_environment = await tournament_sql.get_latest_completed_tournament(config.psql_db, TournamentType.ENVIRONMENT)
+        latest_tournament_results = await asyncio.gather(
+            *(
+                tournament_sql.get_latest_completed_tournament(config.psql_db, tournament_type)
+                for tournament_type in tournament_types()
+            )
+        )
+        latest_tournaments = dict(zip(tournament_types(), latest_tournament_results))
 
-        text_details = None
-        image_details = None
-        environment_details = None
-
-        if latest_text:
-            text_details = await get_tournament_details(latest_text.tournament_id, config)
-
-        if latest_image:
-            image_details = await get_tournament_details(latest_image.tournament_id, config)
-
-        if latest_environment:
-            environment_details = await get_tournament_details(latest_environment.tournament_id, config)
+        details_by_type = {}
+        for tournament_type, latest_tournament in latest_tournaments.items():
+            if latest_tournament:
+                details_by_type[tournament_type] = await get_tournament_details(latest_tournament.tournament_id, config)
 
         burn_data = await get_tournament_burn_details(config.psql_db)
 
         result = LatestTournamentsDetailsResponse(
-            text=text_details, 
-            image=image_details, 
-            environment=environment_details,
+            text=details_by_type.get(TournamentType.TEXT),
+            image=details_by_type.get(TournamentType.IMAGE),
+            environment=details_by_type.get(TournamentType.ENVIRONMENT),
             burn_data=burn_data
         )
 
@@ -235,8 +233,12 @@ async def get_latest_tournaments_details(
         await config.redis_db.set(LATEST_TOURNAMENTS_CACHE_KEY, json.dumps(cache_data), ex=LATEST_TOURNAMENTS_CACHE_TTL)
         logger.info(f"Cached latest tournament details for {LATEST_TOURNAMENTS_CACHE_TTL} seconds")
 
+        latest_text = latest_tournaments[TournamentType.TEXT]
+        latest_image = latest_tournaments[TournamentType.IMAGE]
+        latest_environment = latest_tournaments[TournamentType.ENVIRONMENT]
         logger.info(
-            f"Retrieved latest tournament details: text={latest_text.tournament_id if latest_text else None}, "
+            f"Retrieved latest tournament details: "
+            f"text={latest_text.tournament_id if latest_text else None}, "
             f"image={latest_image.tournament_id if latest_image else None}, "
             f"environment={latest_environment.tournament_id if latest_environment else None}, "
             f"burn_weight={burn_data.burn_weight:.4f}, "
@@ -319,15 +321,14 @@ async def get_next_tournament_dates(
     try:
 
         async def get_tournament_info_for_type(tournament_type: TournamentType) -> NextTournamentInfo:
+            scheduled_day, scheduled_hour = get_tournament_schedule(tournament_type)
+
             # Check if there's an active tournament first
             active_tournament = await tournament_sql.get_active_tournament(config.psql_db, tournament_type)
             if active_tournament:
                 # Get current round number
                 rounds = await tournament_sql.get_tournament_rounds(active_tournament.tournament_id, config.psql_db)
                 current_round = len(rounds) if rounds else 1
-
-                # Get tournament-specific schedule
-                scheduled_day, scheduled_hour = _get_tournament_schedule(tournament_type)
 
                 return NextTournamentInfo(
                     tournament_type=tournament_type,
@@ -343,9 +344,6 @@ async def get_next_tournament_dates(
             pending_tournaments = await tournament_sql.get_tournaments_with_status(TournamentStatus.PENDING, config.psql_db)
             pending_of_type = [t for t in pending_tournaments if t.tournament_type == tournament_type]
             if pending_of_type:
-                # Get tournament-specific schedule
-                scheduled_day, scheduled_hour = _get_tournament_schedule(tournament_type)
-                
                 # Calculate next start date for pending tournament
                 # Use current time as reference since pending tournaments are newly created
                 current_time = datetime.now(timezone.utc)
@@ -384,9 +382,6 @@ async def get_next_tournament_dates(
 
                 next_start = _calculate_next_tournament_start_time(time_reference, tournament_type)
 
-            # Get tournament-specific schedule
-            scheduled_day, scheduled_hour = _get_tournament_schedule(tournament_type)
-
             return NextTournamentInfo(
                 tournament_type=tournament_type,
                 next_start_date=next_start,
@@ -398,10 +393,15 @@ async def get_next_tournament_dates(
                 scheduled_minute=0,
             )
 
+        info_results = await asyncio.gather(
+            *(get_tournament_info_for_type(tournament_type) for tournament_type in tournament_types())
+        )
+        info_by_type = dict(zip(tournament_types(), info_results))
+
         response = NextTournamentDates(
-            text=await get_tournament_info_for_type(TournamentType.TEXT),
-            image=await get_tournament_info_for_type(TournamentType.IMAGE),
-            environment=await get_tournament_info_for_type(TournamentType.ENVIRONMENT),
+            text=info_by_type[TournamentType.TEXT],
+            image=info_by_type[TournamentType.IMAGE],
+            environment=info_by_type[TournamentType.ENVIRONMENT],
         )
 
         logger.info("Retrieved tournament info")
@@ -441,17 +441,26 @@ async def get_active_tournaments(
                 created_at=created_at,
             )
 
-        text_info = await get_active_tournament_info(TournamentType.TEXT)
-        image_info = await get_active_tournament_info(TournamentType.IMAGE)
-        environment_info = await get_active_tournament_info(TournamentType.ENVIRONMENT)
+        active_info_results = await asyncio.gather(
+            *(get_active_tournament_info(tournament_type) for tournament_type in tournament_types())
+        )
+        active_info_by_type = dict(zip(tournament_types(), active_info_results))
 
+        active_text = active_info_by_type[TournamentType.TEXT]
+        active_image = active_info_by_type[TournamentType.IMAGE]
+        active_environment = active_info_by_type[TournamentType.ENVIRONMENT]
         logger.info(
-            f"Retrieved active tournaments: text={text_info.tournament_id if text_info else None}, "
-            f"image={image_info.tournament_id if image_info else None}, "
-            f"environment={environment_info.tournament_id if environment_info else None}"
+            f"Retrieved active tournaments: "
+            f"text={active_text.tournament_id if active_text else None}, "
+            f"image={active_image.tournament_id if active_image else None}, "
+            f"environment={active_environment.tournament_id if active_environment else None}"
         )
 
-        return ActiveTournamentsResponse(text=text_info, image=image_info, environment=environment_info)
+        return ActiveTournamentsResponse(
+            text=active_text,
+            image=active_image,
+            environment=active_environment,
+        )
 
     except Exception as e:
         logger.error(f"Error retrieving active tournaments: {str(e)}")

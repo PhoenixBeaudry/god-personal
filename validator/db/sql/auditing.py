@@ -1,34 +1,145 @@
 import json
+from typing import Any
 
 from asyncpg import Connection
 from fastapi import Depends
 from fastapi import HTTPException
 from loguru import logger  # noqa
 
+from core.models.utility_models import HIGHER_IS_BETTER_TASK_TYPES
 from core.models.utility_models import ImageTextPair
 from core.models.utility_models import RewardFunction
 from core.models.utility_models import TaskType
-from validator.core.config import Config
-from validator.core.dependencies import get_config
-from validator.core.models import AnyTypeTask
-from validator.core.models import AnyTypeTaskWithHotkeyDetails
-from validator.core.models import ChatTask
-from validator.core.models import ChatTaskWithHotkeyDetails
-from validator.core.models import DpoTask
-from validator.core.models import EnvTask
-from validator.core.models import EnvTaskWithHotkeyDetails
-from validator.core.models import DpoTaskWithHotkeyDetails
-from validator.core.models import GrpoTask
-from validator.core.models import GrpoTaskWithHotkeyDetails
-from validator.core.models import HotkeyDetails
-from validator.core.models import ImageTask
-from validator.core.models import ImageTaskWithHotkeyDetails
-from validator.core.models import InstructTextTask
-from validator.core.models import InstructTextTaskWithHotkeyDetails
+from core.models.utility_models import normalize_task_type
+from core.models.utility_models import scores_higher_is_better
 from validator.db import constants as cst
 from validator.db.sql import tasks as tasks_sql
-from validator.utils.util import hide_sensitive_data_till_finished
-from validator.utils.util import normalise_float
+from validator.db.sql.normalization import normalise_float
+from validator.shared.config import Config
+from validator.shared.dependencies import get_config
+from validator.shared.models import AnyTypeTask
+from validator.shared.models import AnyTypeTaskWithHotkeyDetails
+from validator.shared.models import ChatTask
+from validator.shared.models import ChatTaskWithHotkeyDetails
+from validator.shared.models import DpoTask
+from validator.shared.models import DpoTaskWithHotkeyDetails
+from validator.shared.models import EnvTask
+from validator.shared.models import EnvTaskWithHotkeyDetails
+from validator.shared.models import GrpoTask
+from validator.shared.models import GrpoTaskWithHotkeyDetails
+from validator.shared.models import HotkeyDetails
+from validator.shared.models import ImageTask
+from validator.shared.models import ImageTaskWithHotkeyDetails
+from validator.shared.models import InstructTextTask
+from validator.shared.models import InstructTextTaskWithHotkeyDetails
+from validator.tasks.details import hide_sensitive_data_till_finished
+
+
+_TASK_MODEL_BY_TYPE = {
+    TaskType.INSTRUCTTEXTTASK: InstructTextTask,
+    TaskType.CHATTASK: ChatTask,
+    TaskType.IMAGETASK: ImageTask,
+    TaskType.DPOTASK: DpoTask,
+    TaskType.GRPOTASK: GrpoTask,
+    TaskType.ENVIRONMENTTASK: EnvTask,
+}
+_TASK_WITH_HOTKEY_DETAILS_MODEL_BY_TYPE = {
+    TaskType.INSTRUCTTEXTTASK: InstructTextTaskWithHotkeyDetails,
+    TaskType.CHATTASK: ChatTaskWithHotkeyDetails,
+    TaskType.IMAGETASK: ImageTaskWithHotkeyDetails,
+    TaskType.DPOTASK: DpoTaskWithHotkeyDetails,
+    TaskType.GRPOTASK: GrpoTaskWithHotkeyDetails,
+    TaskType.ENVIRONMENTTASK: EnvTaskWithHotkeyDetails,
+}
+_AUDIT_TASK_TABLE_BY_TYPE = {
+    TaskType.INSTRUCTTEXTTASK: cst.INSTRUCT_TEXT_TASKS_TABLE,
+    TaskType.CHATTASK: cst.CHAT_TASKS_TABLE,
+    TaskType.IMAGETASK: cst.IMAGE_TASKS_TABLE,
+    TaskType.DPOTASK: cst.DPO_TASKS_TABLE,
+    TaskType.GRPOTASK: cst.GRPO_TASKS_TABLE,
+    TaskType.ENVIRONMENTTASK: cst.ENV_TASKS_TABLE,
+}
+_HIGHER_IS_BETTER_SQL_VALUES = ", ".join(f"'{task_type.value}'" for task_type in HIGHER_IS_BETTER_TASK_TYPES)
+
+
+def _task_model_for_type(task_type: TaskType | str):
+    return _TASK_MODEL_BY_TYPE.get(normalize_task_type(task_type))
+
+
+def _with_hotkey_details_model_for_type(task_type: TaskType | str):
+    return _TASK_WITH_HOTKEY_DETAILS_MODEL_BY_TYPE.get(normalize_task_type(task_type))
+
+
+def _task_fields_for_model(task_model, task_data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in task_data.items() if key in task_model.model_fields}
+
+
+def _parse_image_text_pairs(raw_pairs) -> list[ImageTextPair]:
+    if not raw_pairs:
+        return []
+    if isinstance(raw_pairs, str):
+        try:
+            raw_pairs = json.loads(raw_pairs)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw_pairs, list):
+        return []
+
+    image_text_pairs = []
+    for pair in raw_pairs:
+        try:
+            pair_data = pair if isinstance(pair, dict) else json.loads(pair)
+            image_text_pairs.append(ImageTextPair(**pair_data))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return image_text_pairs
+
+
+def _parse_reward_functions(raw_reward_functions) -> list[RewardFunction]:
+    if not raw_reward_functions:
+        return []
+
+    reward_functions = []
+    for reward_function in raw_reward_functions:
+        try:
+            reward_data = reward_function if isinstance(reward_function, dict) else json.loads(reward_function)
+            reward_functions.append(RewardFunction(**reward_data))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return reward_functions
+
+
+def _build_task_for_audit(task_type: TaskType | str, task_data: dict[str, Any]) -> AnyTypeTask | None:
+    task_model = _task_model_for_type(task_type)
+    if task_model is None:
+        return None
+    return task_model(**_task_fields_for_model(task_model, task_data))
+
+
+def _build_task_with_hotkey_details(
+    task_type: TaskType | str,
+    task_data: dict[str, Any],
+    hotkey_details: list[HotkeyDetails],
+) -> AnyTypeTaskWithHotkeyDetails | None:
+    normalized_task_type = normalize_task_type(task_type)
+    task = _build_task_for_audit(normalized_task_type, task_data)
+    if task is None:
+        return None
+    task = hide_sensitive_data_till_finished(task)
+    details_model = _with_hotkey_details_model_for_type(normalized_task_type)
+    if details_model is None:
+        return None
+    return details_model(**task.model_dump(), hotkey_details=hotkey_details)
+
+
+def _group_task_ids_by_type(tasks_by_id: dict[str, dict]) -> dict[TaskType, list[str]]:
+    grouped_task_ids = {task_type: [] for task_type in _AUDIT_TASK_TABLE_BY_TYPE}
+    for task_id, task_data in tasks_by_id.items():
+        try:
+            grouped_task_ids[normalize_task_type(task_data.get(cst.TASK_TYPE))].append(task_id)
+        except ValueError:
+            logger.warning(f"Unknown task type {task_data.get(cst.TASK_TYPE)} for task_id {task_id}")
+    return grouped_task_ids
 
 
 async def get_recent_tasks(
@@ -156,58 +267,33 @@ async def get_recent_tasks(
         for row in rows:
             task_data = dict(row)
             task_type = task_data[cst.TASK_TYPE]
+            try:
+                normalized_task_type = normalize_task_type(task_type)
+            except ValueError:
+                logger.warning(f"Unknown task type: {task_type}, skipping task {task_data.get('task_id')}")
+                continue
 
-            if task_type == TaskType.INSTRUCTTEXTTASK.value:
+            if normalized_task_type == TaskType.INSTRUCTTEXTTASK:
                 task_data["field_system"] = task_data.pop("itt_field_system")
                 task_data["format"] = task_data.pop("itt_format")
                 task_data["file_format"] = task_data.pop("itt_file_format")
-                task = InstructTextTask(**{k: v for k, v in task_data.items() if k in InstructTextTask.model_fields})
-            elif task_type == TaskType.IMAGETASK.value:
-                image_text_pairs = task_data.pop("image_text_pairs") or []
-                if isinstance(image_text_pairs, str):
-                    try:
-                        image_text_pairs = json.loads(image_text_pairs)
-                    except json.JSONDecodeError:
-                        image_text_pairs = []
-                elif isinstance(image_text_pairs, list):
-                    try:
-                        image_text_pairs = [
-                            ImageTextPair(**pair) if isinstance(pair, dict) else ImageTextPair(**json.loads(pair))
-                            for pair in image_text_pairs
-                        ]
-                    except json.JSONDecodeError:
-                        image_text_pairs = []
-
-                task = ImageTask(
-                    **{k: v for k, v in task_data.items() if k in ImageTask.model_fields}, image_text_pairs=image_text_pairs
-                )
-            elif task_type == TaskType.DPOTASK.value:
+            elif normalized_task_type == TaskType.IMAGETASK:
+                task_data["image_text_pairs"] = _parse_image_text_pairs(task_data.pop("image_text_pairs", None))
+            elif normalized_task_type == TaskType.DPOTASK:
                 task_data["field_prompt"] = task_data.pop("dpo_field_prompt")
                 task_data["file_format"] = task_data.pop("dpo_file_format")
-                task = DpoTask(**{k: v for k, v in task_data.items() if k in DpoTask.model_fields})
-            elif task_type == TaskType.ENVIRONMENTTASK.value:
+            elif normalized_task_type == TaskType.ENVIRONMENTTASK:
                 task_data[cst.ENVIRONMENT_NAMES] = task_data.pop(f"env_{cst.ENVIRONMENT_NAMES}", [])
                 task_data[cst.EVAL_SEED] = task_data.pop(f"env_{cst.EVAL_SEED}", None)
-                task = EnvTask(**{k: v for k, v in task_data.items() if k in EnvTask.model_fields})
-            elif task_type == TaskType.GRPOTASK.value:
+            elif normalized_task_type == TaskType.GRPOTASK:
                 task_data["field_prompt"] = task_data.pop("grpo_field_prompt")
                 task_data["file_format"] = task_data.pop("grpo_file_format")
-
-                reward_functions = []
-                if task_data.get("reward_functions"):
-                    for rf_str in task_data["reward_functions"]:
-                        try:
-                            rf_dict = json.loads(rf_str)
-                            reward_functions.append(RewardFunction(**rf_dict))
-                        except (json.JSONDecodeError, TypeError):
-                            continue
-                task_data["reward_functions"] = reward_functions
-
-                task = GrpoTask(**{k: v for k, v in task_data.items() if k in GrpoTask.model_fields})
-            elif task_type == TaskType.CHATTASK.value:
+                task_data["reward_functions"] = _parse_reward_functions(task_data.get("reward_functions"))
+            elif normalized_task_type == TaskType.CHATTASK:
                 task_data["file_format"] = task_data.pop("chat_file_format")
-                task = ChatTask(**{k: v for k, v in task_data.items() if k in ChatTask.model_fields})
-            else:
+
+            task = _build_task_for_audit(normalized_task_type, task_data)
+            if task is None:
                 logger.warning(f"Unknown task type: {task_type}, skipping task {task_data.get('task_id')}")
                 continue
 
@@ -273,7 +359,7 @@ async def _process_task_batch(
                 RANK() OVER (
                     PARTITION BY t.{cst.TASK_ID}
                     ORDER BY CASE
-                        WHEN t.{cst.TASK_TYPE} IN ('EnvTask', 'GrpoTask') THEN -tn.{cst.TEST_LOSS}
+                        WHEN t.{cst.TASK_TYPE} IN ({_HIGHER_IS_BETTER_SQL_VALUES}) THEN -tn.{cst.TEST_LOSS}
                         ELSE tn.{cst.TEST_LOSS}
                     END ASC NULLS LAST
                 ) AS rank,
@@ -316,27 +402,13 @@ async def _process_task_batch(
         details_by_task_id[task_id].append(detail)
 
     # Step 5: Get type-specific data for each task type
-    instruct_text_task_ids = []
-    image_task_ids = []
-    dpo_task_ids = []
-    grpo_task_ids = []
-    chat_task_ids = []
-    env_task_ids = []
-
-    for task_id, task_data in tasks_by_id.items():
-        task_type = task_data.get(cst.TASK_TYPE)
-        if task_type == TaskType.INSTRUCTTEXTTASK.value:
-            instruct_text_task_ids.append(task_id)
-        elif task_type == TaskType.IMAGETASK.value:
-            image_task_ids.append(task_id)
-        elif task_type == TaskType.DPOTASK.value:
-            dpo_task_ids.append(task_id)
-        elif task_type == TaskType.GRPOTASK.value:
-            grpo_task_ids.append(task_id)
-        elif task_type == TaskType.ENVIRONMENTTASK.value:
-            env_task_ids.append(task_id)
-        elif task_type == TaskType.CHATTASK.value:
-            chat_task_ids.append(task_id)
+    grouped_task_ids = _group_task_ids_by_type(tasks_by_id)
+    instruct_text_task_ids = grouped_task_ids[TaskType.INSTRUCTTEXTTASK]
+    image_task_ids = grouped_task_ids[TaskType.IMAGETASK]
+    dpo_task_ids = grouped_task_ids[TaskType.DPOTASK]
+    grpo_task_ids = grouped_task_ids[TaskType.GRPOTASK]
+    chat_task_ids = grouped_task_ids[TaskType.CHATTASK]
+    env_task_ids = grouped_task_ids[TaskType.ENVIRONMENTTASK]
 
     # Get all InstructTextTask specific data in one query
     instruct_text_task_data = {}
@@ -426,6 +498,15 @@ async def _process_task_batch(
             if task_id in grpo_task_data:
                 grpo_task_data[task_id]["reward_functions"] = reward_functions
 
+    task_specific_data_by_type = {
+        TaskType.INSTRUCTTEXTTASK: instruct_text_task_data,
+        TaskType.CHATTASK: chat_task_data,
+        TaskType.IMAGETASK: image_task_data,
+        TaskType.DPOTASK: dpo_task_data,
+        TaskType.GRPOTASK: grpo_task_data,
+        TaskType.ENVIRONMENTTASK: env_task_data,
+    }
+
     # Step 6: Assemble final results
     for task_id in task_ids:
         if task_id not in tasks_by_id:
@@ -433,19 +514,15 @@ async def _process_task_batch(
 
         task_data = tasks_by_id[task_id].copy()
         task_type = task_data.get(cst.TASK_TYPE)
+        try:
+            normalized_task_type = normalize_task_type(task_type)
+        except ValueError:
+            logger.warning(f"Unknown task type {task_type} for task_id {task_id}")
+            continue
 
-        if task_type == TaskType.INSTRUCTTEXTTASK.value and task_id in instruct_text_task_data:
-            task_data.update(instruct_text_task_data[task_id])
-        elif task_type == TaskType.IMAGETASK.value and task_id in image_task_data:
-            task_data.update(image_task_data[task_id])
-        elif task_type == TaskType.DPOTASK.value and task_id in dpo_task_data:
-            task_data.update(dpo_task_data[task_id])
-        elif task_type == TaskType.GRPOTASK.value and task_id in grpo_task_data:
-            task_data.update(grpo_task_data[task_id])
-        elif task_type == TaskType.ENVIRONMENTTASK.value and task_id in env_task_data:
-            task_data.update(env_task_data[task_id])
-        elif task_type == TaskType.CHATTASK.value and task_id in chat_task_data:
-            task_data.update(chat_task_data[task_id])
+        specific_task_data = task_specific_data_by_type.get(normalized_task_type, {})
+        if task_id in specific_task_data:
+            task_data.update(specific_task_data[task_id])
 
         hotkey_details = []
         if task_id in details_by_task_id:
@@ -464,36 +541,9 @@ async def _process_task_batch(
                     )
                 )
 
-        if task_type == TaskType.INSTRUCTTEXTTASK.value:
-            task_fields = {k: v for k, v in task_data.items() if k in InstructTextTask.model_fields}
-            task = InstructTextTask(**task_fields)
-            task = hide_sensitive_data_till_finished(task)
-            tasks_with_details.append(InstructTextTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details))
-        elif task_type == TaskType.CHATTASK.value:
-            task_fields = {k: v for k, v in task_data.items() if k in ChatTask.model_fields}
-            task = ChatTask(**task_fields)
-            task = hide_sensitive_data_till_finished(task)
-            tasks_with_details.append(ChatTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details))
-        elif task_type == TaskType.IMAGETASK.value:
-            task_fields = {k: v for k, v in task_data.items() if k in ImageTask.model_fields}
-            task = ImageTask(**task_fields)
-            task = hide_sensitive_data_till_finished(task)
-            tasks_with_details.append(ImageTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details))
-        elif task_type == TaskType.DPOTASK.value:
-            task_fields = {k: v for k, v in task_data.items() if k in DpoTask.model_fields}
-            task = DpoTask(**task_fields)
-            task = hide_sensitive_data_till_finished(task)
-            tasks_with_details.append(DpoTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details))
-        elif task_type == TaskType.GRPOTASK.value:
-            task_fields = {k: v for k, v in task_data.items() if k in GrpoTask.model_fields}
-            task = GrpoTask(**task_fields)
-            task = hide_sensitive_data_till_finished(task)
-            tasks_with_details.append(GrpoTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details))
-        elif task_type == TaskType.ENVIRONMENTTASK.value:
-            task_fields = {k: v for k, v in task_data.items() if k in EnvTask.model_fields}
-            task = EnvTask(**task_fields)
-            task = hide_sensitive_data_till_finished(task)
-            tasks_with_details.append(EnvTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details))
+        task_with_details = _build_task_with_hotkey_details(normalized_task_type, task_data, hotkey_details)
+        if task_with_details:
+            tasks_with_details.append(task_with_details)
 
     return tasks_with_details
 
@@ -561,7 +611,7 @@ async def get_task_with_hotkey_details(task_id: str, config: Config = Depends(ge
 
     task = hide_sensitive_data_till_finished(task_raw)
 
-    higher_is_better = task_raw.task_type in (TaskType.ENVIRONMENTTASK, TaskType.GRPOTASK)
+    higher_is_better = scores_higher_is_better(task_raw.task_type)
     rank_order = f"tn.{cst.TEST_LOSS} DESC NULLS LAST" if higher_is_better else f"tn.{cst.TEST_LOSS} ASC NULLS LAST"
 
     query = f"""
@@ -602,18 +652,10 @@ async def get_task_with_hotkey_details(task_id: str, config: Config = Depends(ge
 
         hotkey_details.append(HotkeyDetails(**result_dict))
 
-    if task.task_type == TaskType.INSTRUCTTEXTTASK:
-        return InstructTextTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details)
-    elif task.task_type == TaskType.IMAGETASK:
-        return ImageTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details)
-    elif task.task_type == TaskType.DPOTASK:
-        return DpoTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details)
-    elif task.task_type == TaskType.GRPOTASK:
-        return GrpoTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details)
-    elif task.task_type == TaskType.ENVIRONMENTTASK:
-        return EnvTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details)
-    elif task.task_type == TaskType.CHATTASK:
-        return ChatTaskWithHotkeyDetails(**task.model_dump(), hotkey_details=hotkey_details)
+    details_model = _with_hotkey_details_model_for_type(task.task_type)
+    if details_model is None:
+        raise HTTPException(status_code=500, detail=f"Unsupported task type: {task.task_type}")
+    return details_model(**task.model_dump(), hotkey_details=hotkey_details)
 
 
 async def store_latest_scores_url(url: str, config: Config = Depends(get_config)) -> None:

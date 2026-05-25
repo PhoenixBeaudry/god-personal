@@ -11,10 +11,11 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from core import constants as cst
+from core.constants import EnvironmentName
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import BaselineStats
+from core.models.network_models import AllNodeStats
 from core.models.utility_models import EnvironmentDatasetType
-from core.constants import EnvironmentName
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType
 from core.models.utility_models import ImageModelType
@@ -26,7 +27,6 @@ from core.models.utility_models import TaskMinerResult
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from core.models.utility_models import TextDatasetType
-from validator.core.models import AllNodeStats
 
 
 logger = get_logger(__name__)

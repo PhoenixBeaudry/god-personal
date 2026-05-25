@@ -68,8 +68,16 @@ class PvPModelSpec(PvPBaseModel):
     original_model: str = Field(
         description="Base model repository, used for LoRA detection"
     )
-    gpu_id: int | None = Field(default=None, ge=0, description="GPU device ID. Defaults to 0 for model_a, 1 for model_b")
-    port: int | None = Field(default=None, gt=0, description="SGLang server port. Defaults to 30000 for model_a, 30001 for model_b")
+    gpu_id: int | None = Field(
+        default=None,
+        ge=0,
+        description="GPU device ID. Defaults to 0 for model_a, 1 for model_b",
+    )
+    port: int | None = Field(
+        default=None,
+        gt=0,
+        description="SGLang server port. Defaults to 30000 for model_a, 30001 for model_b",
+    )
 
 
 class PvPMatchupConfig(BaseModel):

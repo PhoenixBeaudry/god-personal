@@ -1,26 +1,54 @@
 from fastapi import APIRouter
 from fastapi import Depends
 
-import validator.core.constants as cts
 from core.models.tournament_models import BossBattleResponse
 from core.models.tournament_models import MultiWeightProjectionResponse
 from core.models.tournament_models import TournamentBurnData
 from core.models.tournament_models import TournamentType
 from core.models.tournament_models import TournamentWeightsResponse
 from core.models.tournament_models import WeightProjectionResponse
-from validator.core.config import Config
-from validator.core.dependencies import get_config
-from validator.core.weight_setting import build_tournament_audit_data
-from validator.core.weight_setting import get_tournament_burn_details
-from validator.tournament.performance_utils import calculate_scaled_weights
 from validator.db.sql.tournaments import get_latest_completed_tournament
 from validator.evaluation.tournament_scoring import get_tournament_weights_from_data
+from validator.shared.config import Config
+from validator.shared.dependencies import get_config
+from validator.shared.weight_setting import build_tournament_audit_data
+from validator.shared.weight_setting import get_tournament_burn_details
 from validator.tournament.performance_calculator import calculate_boss_round_performance_differences
+from validator.tournament.performance_utils import calculate_scaled_weights
 from validator.tournament.performance_utils import calculate_tournament_projection
 from validator.tournament.performance_utils import get_top_ranked_miners
+from validator.tournament.specs import get_tournament_spec
 
 
 router = APIRouter(tags=["Performance Data"])
+
+
+async def _calculate_projection(
+    config: Config,
+    tournament_type: TournamentType,
+    percentage_improvement: float,
+):
+    spec = get_tournament_spec(tournament_type)
+    return await calculate_tournament_projection(
+        config.psql_db,
+        tournament_type,
+        percentage_improvement,
+        spec.base_weight,
+        spec.max_weight,
+    )
+
+
+async def _latest_boss_battle(
+    config: Config,
+    tournament_type: TournamentType,
+) -> tuple[str | None, list]:
+    latest_tournament = await get_latest_completed_tournament(config.psql_db, tournament_type)
+    if not latest_tournament:
+        return None, []
+
+    tournament_id = latest_tournament.tournament_id
+    performance_differences = await calculate_boss_round_performance_differences(tournament_id, config.psql_db)
+    return tournament_id, performance_differences
 
 
 @router.get("/v1/performance/latest-tournament-weights")
@@ -139,29 +167,9 @@ async def get_weight_projection(
     percentage_improvement: float,
     config: Config = Depends(get_config),
 ) -> WeightProjectionResponse:
-    text_projection = await calculate_tournament_projection(
-        config.psql_db,
-        TournamentType.TEXT,
-        percentage_improvement,
-        cts.TOURNAMENT_TEXT_WEIGHT,
-        cts.MAX_TEXT_TOURNAMENT_WEIGHT,
-    )
-
-    image_projection = await calculate_tournament_projection(
-        config.psql_db,
-        TournamentType.IMAGE,
-        percentage_improvement,
-        cts.TOURNAMENT_IMAGE_WEIGHT,
-        cts.MAX_IMAGE_TOURNAMENT_WEIGHT,
-    )
-
-    environment_projection = await calculate_tournament_projection(
-        config.psql_db,
-        TournamentType.ENVIRONMENT,
-        percentage_improvement,
-        cts.TOURNAMENT_ENVIRONMENT_WEIGHT,
-        cts.MAX_ENVIRONMENT_TOURNAMENT_WEIGHT,
-    )
+    text_projection = await _calculate_projection(config, TournamentType.TEXT, percentage_improvement)
+    image_projection = await _calculate_projection(config, TournamentType.IMAGE, percentage_improvement)
+    environment_projection = await _calculate_projection(config, TournamentType.ENVIRONMENT, percentage_improvement)
 
     return WeightProjectionResponse(
         percentage_improvement=percentage_improvement,
@@ -179,29 +187,9 @@ async def get_weight_projection_static(
 
     projections = []
     for percentage_improvement in percentage_improvements:
-        text_projection = await calculate_tournament_projection(
-            config.psql_db,
-            TournamentType.TEXT,
-            percentage_improvement,
-            cts.TOURNAMENT_TEXT_WEIGHT,
-            cts.MAX_TEXT_TOURNAMENT_WEIGHT,
-        )
-
-        image_projection = await calculate_tournament_projection(
-            config.psql_db,
-            TournamentType.IMAGE,
-            percentage_improvement,
-            cts.TOURNAMENT_IMAGE_WEIGHT,
-            cts.MAX_IMAGE_TOURNAMENT_WEIGHT,
-        )
-
-        environment_projection = await calculate_tournament_projection(
-            config.psql_db,
-            TournamentType.ENVIRONMENT,
-            percentage_improvement,
-            cts.TOURNAMENT_ENVIRONMENT_WEIGHT,
-            cts.MAX_ENVIRONMENT_TOURNAMENT_WEIGHT,
-        )
+        text_projection = await _calculate_projection(config, TournamentType.TEXT, percentage_improvement)
+        image_projection = await _calculate_projection(config, TournamentType.IMAGE, percentage_improvement)
+        environment_projection = await _calculate_projection(config, TournamentType.ENVIRONMENT, percentage_improvement)
 
         projections.append(
             WeightProjectionResponse(
@@ -219,29 +207,12 @@ async def get_weight_projection_static(
 async def get_last_boss_battle(
     config: Config = Depends(get_config),
 ) -> BossBattleResponse:
-    # Get latest completed tournaments
-    latest_text_tournament = await get_latest_completed_tournament(config.psql_db, TournamentType.TEXT)
-    latest_image_tournament = await get_latest_completed_tournament(config.psql_db, TournamentType.IMAGE)
-    latest_environment_tournament = await get_latest_completed_tournament(config.psql_db, TournamentType.ENVIRONMENT)
-
-    # Calculate boss round performance differences
-    text_performance_differences = []
-    text_tournament_id = None
-    if latest_text_tournament:
-        text_tournament_id = latest_text_tournament.tournament_id
-        text_performance_differences = await calculate_boss_round_performance_differences(text_tournament_id, config.psql_db)
-
-    image_performance_differences = []
-    image_tournament_id = None
-    if latest_image_tournament:
-        image_tournament_id = latest_image_tournament.tournament_id
-        image_performance_differences = await calculate_boss_round_performance_differences(image_tournament_id, config.psql_db)
-
-    environment_performance_differences = []
-    environment_tournament_id = None
-    if latest_environment_tournament:
-        environment_tournament_id = latest_environment_tournament.tournament_id
-        environment_performance_differences = await calculate_boss_round_performance_differences(environment_tournament_id, config.psql_db)
+    text_tournament_id, text_performance_differences = await _latest_boss_battle(config, TournamentType.TEXT)
+    image_tournament_id, image_performance_differences = await _latest_boss_battle(config, TournamentType.IMAGE)
+    environment_tournament_id, environment_performance_differences = await _latest_boss_battle(
+        config,
+        TournamentType.ENVIRONMENT,
+    )
 
     return BossBattleResponse(
         text_tournament_id=text_tournament_id,

@@ -7,9 +7,12 @@ from datetime import timezone
 
 from fiber.chain.models import Node
 
+import validator.shared.constants as cst
 from core.constants import RAYONLABS_HF_USERNAME
 from core.constants import TrainingStartPoint
-import validator.core.constants as cst
+from core.datasets.whitelist import validate_requested_datasets
+from core.logging import LogContext
+from core.logging import get_logger
 from core.models.payload_models import TrainingRepoResponse
 from core.models.tournament_models import Group
 from core.models.tournament_models import GroupRound
@@ -27,10 +30,6 @@ from core.models.tournament_models import TournamentType
 from core.models.tournament_models import generate_round_id
 from core.models.tournament_models import generate_tournament_id
 from core.models.utility_models import TaskStatus
-from core.whitelisted_sft_datasets import validate_requested_datasets
-from validator.core.config import Config
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.models import AnyTypeTask
 from validator.db.database import PSQLDB
 from validator.db.sql import tasks as task_sql
 from validator.db.sql.nodes import get_all_nodes
@@ -62,29 +61,33 @@ from validator.db.sql.tournaments import update_tournament_winner_hotkey
 from validator.db.sql.tournaments import update_tournament_winner_model
 from validator.db.sql.transfers import deduct_tournament_participation_fee
 from validator.db.sql.transfers import get_coldkey_balance_by_address
+from validator.infrastructure.content_service import process_non_stream_fiber_get
+from validator.shared.config import Config
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.models import AnyTypeTask
 from validator.tournament import constants as t_cst
 from validator.tournament.benchmark_utils import create_benchmark_tasks_for_tournament_winner
+from validator.tournament.environment_results import determine_env_tournament_winner
+from validator.tournament.notifications import notify_tournament_completed
+from validator.tournament.notifications import notify_tournament_started
+from validator.tournament.notifications import send_to_discord
+from validator.tournament.participants import deduplicate_by_github_account
+from validator.tournament.participants import get_base_contestant
+from validator.tournament.participants import get_challenger_participant_for_retained_boss
+from validator.tournament.participants import get_latest_tournament_winner_participant
+from validator.tournament.participants import validate_github_tokens
+from validator.tournament.participants import validate_repo_license
+from validator.tournament.participants import validate_repo_obfuscation
 from validator.tournament.repo_uploader import upload_tournament_participant_repository
+from validator.tournament.reports import generate_diff_report_and_notify_tournament_completed
+from validator.tournament.round_results import get_round_winners
+from validator.tournament.specs import get_tournament_schedule
+from validator.tournament.specs import get_tournament_spec
+from validator.tournament.specs import tournament_types
 from validator.tournament.task_creator import create_environment_tournament_tasks
 from validator.tournament.task_creator import create_image_tournament_tasks
 from validator.tournament.task_creator import create_text_tournament_tasks
 from validator.tournament.task_creator import replace_tournament_task
-from validator.tournament.utils import determine_env_tournament_winner
-from validator.tournament.utils import generate_diff_report_and_notify_tournament_completed
-from validator.tournament.utils import get_base_contestant
-from validator.tournament.utils import get_challenger_participant_for_retained_boss
-from validator.tournament.utils import get_latest_tournament_winner_participant
-from validator.tournament.utils import get_round_winners
-from validator.tournament.utils import notify_tournament_completed
-from validator.tournament.utils import notify_tournament_started
-from validator.tournament.utils import send_to_discord
-from validator.tournament.utils import deduplicate_by_github_account
-from validator.tournament.utils import validate_github_tokens
-from validator.tournament.utils import validate_repo_license
-from validator.tournament.utils import validate_repo_obfuscation
-from validator.utils.call_endpoint import process_non_stream_fiber_get
-from validator.utils.logging import LogContext
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)
@@ -202,16 +205,16 @@ async def _create_first_round(
 async def _create_tournament_tasks(
     tournament_id: str, round_structure: Round, tournament_type: TournamentType, is_final: bool, config: Config,
 ) -> list[str]:
-    if tournament_type == TournamentType.TEXT:
-        tasks = await create_text_tournament_tasks(round_structure, tournament_id, config, is_final)
-    elif tournament_type == TournamentType.IMAGE:
-        tasks = await create_image_tournament_tasks(round_structure, tournament_id, config, is_final)
-    elif tournament_type == TournamentType.ENVIRONMENT:
-        tasks = await create_environment_tournament_tasks(round_structure, tournament_id, config, is_final)
-    else:
+    task_creators = {
+        TournamentType.TEXT: create_text_tournament_tasks,
+        TournamentType.IMAGE: create_image_tournament_tasks,
+        TournamentType.ENVIRONMENT: create_environment_tournament_tasks,
+    }
+    task_creator = task_creators.get(tournament_type)
+    if not task_creator:
         raise ValueError(f"Unknown tournament type: {tournament_type}")
 
-    return tasks
+    return await task_creator(round_structure, tournament_id, config, is_final)
 
 
 async def _get_previous_round_repo(tournament_id: str, hotkey: str, psql_db: PSQLDB) -> str | None:
@@ -644,28 +647,21 @@ async def create_basic_tournament(tournament_type: TournamentType, psql_db: PSQL
 
 
 async def populate_tournament_participants(tournament_id: str, config: Config, psql_db: PSQLDB) -> int:
-    logger.info(
-        f"Populating participants for tournament {tournament_id} with minimum requirement of {cst.MIN_MINERS_FOR_TOURN} miners"
-    )
+    logger.info(f"Populating participants for tournament {tournament_id}")
 
     tournament = await get_tournament(tournament_id, psql_db)
     if not tournament:
         logger.error(f"Tournament {tournament_id} not found")
         return 0
 
-    if tournament.tournament_type == TournamentType.TEXT:
-        participation_fee_rao = t_cst.TOURNAMENT_TEXT_PARTICIPATION_FEE_RAO
-        fee_description = "0.2 TAO"
-    elif tournament.tournament_type == TournamentType.IMAGE:
-        participation_fee_rao = t_cst.TOURNAMENT_IMAGE_PARTICIPATION_FEE_RAO
-        fee_description = "0.15 TAO"
-    elif tournament.tournament_type == TournamentType.ENVIRONMENT:
-        participation_fee_rao = t_cst.TOURNAMENT_ENVIRONMENT_PARTICIPATION_FEE_RAO
-        fee_description = "0.20 TAO"
-    else:
-        raise ValueError(f"Unknown tournament type: {tournament.tournament_type}")
+    tournament_spec = get_tournament_spec(tournament.tournament_type)
+    participation_fee_rao = tournament_spec.participation_fee_rao
+    fee_description = tournament_spec.participation_fee_label
 
-    logger.info(f"Tournament type: {tournament.tournament_type.value}, participation fee: {fee_description}")
+    logger.info(
+        f"Tournament type: {tournament.tournament_type.value}, participation fee: {fee_description}, "
+        f"minimum participants: {tournament_spec.minimum_participants}"
+    )
 
     while True:
         all_nodes = await get_all_nodes(psql_db)
@@ -807,10 +803,7 @@ async def populate_tournament_participants(tournament_id: str, config: Config, p
 
         logger.info(f"Successfully populated {miners_that_accept_and_give_repos} participants for tournament {tournament_id}")
 
-        if tournament.tournament_type == TournamentType.ENVIRONMENT:
-            min_required_miners = cst.MIN_MINERS_FOR_ENV_TOURN
-        else:
-            min_required_miners = cst.MIN_MINERS_FOR_TOURN
+        min_required_miners = tournament_spec.minimum_participants
 
         if miners_that_accept_and_give_repos >= min_required_miners:
             logger.info(
@@ -1196,7 +1189,7 @@ async def process_tournament_scheduling(config: Config):
     while True:
         try:
             # Check all tournament types
-            for tournament_type in [TournamentType.TEXT, TournamentType.IMAGE, TournamentType.ENVIRONMENT]:
+            for tournament_type in tournament_types():
                 await check_and_start_tournament(tournament_type, config.psql_db, config)
 
         except Exception as e:
@@ -1313,15 +1306,7 @@ def _get_tournament_schedule(tournament_type: TournamentType) -> tuple[int, int]
 
     Returns (day_of_week, hour) where day_of_week is 0=Monday through 6=Sunday.
     """
-    if tournament_type == TournamentType.ENVIRONMENT:
-        return (cst.TOURNAMENT_SCHEDULE_ENVIRONMENT_DAY_OF_WEEK, cst.TOURNAMENT_SCHEDULE_ENVIRONMENT_HOUR)
-    elif tournament_type == TournamentType.TEXT:
-        return (cst.TOURNAMENT_SCHEDULE_TEXT_DAY_OF_WEEK, cst.TOURNAMENT_SCHEDULE_TEXT_HOUR)
-    elif tournament_type == TournamentType.IMAGE:
-        return (cst.TOURNAMENT_SCHEDULE_IMAGE_DAY_OF_WEEK, cst.TOURNAMENT_SCHEDULE_IMAGE_HOUR)
-    else:
-        # Default fallback
-        return (0, 14)
+    return get_tournament_schedule(tournament_type)
 
 
 def _calculate_next_tournament_start_time(last_created_at: datetime, tournament_type: TournamentType) -> datetime:

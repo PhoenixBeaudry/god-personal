@@ -13,27 +13,30 @@ import subprocess
 import time
 
 import openai
+from huggingface_hub import HfApi
 
 from core.constants import EnvironmentName
-from core.models.pvp_models import (
-    ChatCompletionConfig,
-    FullWeightContestants,
-    PvPEnvironmentResult,
-    PvPEvalConfig,
-    PvPEvalMetadata,
-    PvPGroupModelSpec,
-    PvPGroupResults,
-    PvPPairResult,
-)
-from validator.core import constants as vcst
-from huggingface_hub import HfApi
+from core.models.pvp_models import ChatCompletionConfig
+from core.models.pvp_models import FullWeightContestants
+from core.models.pvp_models import PvPEnvironmentResult
+from core.models.pvp_models import PvPEvalConfig
+from core.models.pvp_models import PvPEvalMetadata
+from core.models.pvp_models import PvPGroupModelSpec
+from core.models.pvp_models import PvPGroupResults
+from core.models.pvp_models import PvPPairResult
 from validator.evaluation.eval_environment import _wait_for_health
-from validator.evaluation.utils import check_for_lora, stop_process
+from validator.evaluation.model_checks import check_for_lora
+from validator.evaluation.runtime import stop_process
+from validator.shared import constants as vcst
+
 
 hf_api = HfApi()
-from validator.evaluation.pvp.chat import chat_completion, create_client
-from validator.evaluation.pvp.game_runner import Player, run_matchup
+from validator.evaluation.pvp.chat import chat_completion
+from validator.evaluation.pvp.chat import create_client
+from validator.evaluation.pvp.game_runner import Player
+from validator.evaluation.pvp.game_runner import run_matchup
 from validator.evaluation.pvp.server import _drain_stdout
+
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +130,6 @@ def run_group_evaluation(config: PvPEvalConfig) -> PvPGroupResults:
         # Missing models auto-lose all matchups against available models
         for missing in missing_models:
             for available in available_models:
-                num_games = sum(mc.num_games * 2 for mc in config.matchups.values())
                 env_results = {
                     env_name: PvPEnvironmentResult(
                         total_games=mc.num_games * 2,

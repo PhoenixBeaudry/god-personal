@@ -7,15 +7,15 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from core.logging import get_logger
 from core.models.payload_models import ModelPrepJob
 from core.models.payload_models import TrainerTaskLog
+from trainer.cleanup import start_cleanup_loop_in_thread
 from trainer.endpoints import factory_router
-from trainer.tasks import complete_model_prep
-from trainer.tasks import complete_task
-from trainer.tasks import get_running_jobs
-from trainer.tasks import log_task
-from trainer.utils.cleanup_loop import start_cleanup_loop_in_thread
-from validator.utils.logging import get_logger
+from trainer.job_state import complete_model_prep
+from trainer.job_state import complete_task
+from trainer.job_state import get_running_jobs
+from trainer.job_state import log_task
 
 
 load_dotenv(".trainer.env")
@@ -26,7 +26,8 @@ logger = get_logger(__name__)
 def _list_running_trainer_containers() -> list:
     client = docker.from_env()
     containers = client.containers.list()
-    return [c for c in containers if c.name.startswith("text-trainer-") or c.name.startswith("image-trainer-") or c.name.startswith("model-prep-")]
+    trainer_container_prefixes = ("text-trainer-", "image-trainer-", "model-prep-")
+    return [container for container in containers if container.name.startswith(trainer_container_prefixes)]
 
 
 def _remove_container(container) -> None:

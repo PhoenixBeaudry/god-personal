@@ -1,38 +1,38 @@
 import asyncio
-import math
-import os
 from datetime import datetime
 
 import numpy as np
 from fiber.chain.models import Node
 from huggingface_hub import HfApi
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 from core import constants as core_cst
+from core.logging import LogContext
+from core.logging import get_logger
 from core.models.payload_models import DiffusionLosses
 from core.models.payload_models import EvaluationResultImage
 from core.models.payload_models import EvaluationResultText
-from core.models.pvp_models import PvPEnvironmentResult, PvPEvalMetadata, PvPGroupModelSpec, PvPGroupResults, PvPIncompleteError, PvPPairDbRow, PvPPairResult, _canonical_pair_key
-
-PairKey = str  # sorted "hotkey_a:hotkey_b"
+from core.models.pvp_models import PvPEnvironmentResult
+from core.models.pvp_models import PvPEvalMetadata
+from core.models.pvp_models import PvPGroupModelSpec
+from core.models.pvp_models import PvPGroupResults
+from core.models.pvp_models import PvPIncompleteError
+from core.models.pvp_models import PvPPairDbRow
+from core.models.pvp_models import PvPPairResult
+from core.models.pvp_models import _canonical_pair_key
 from core.models.scoring_models import EvalHotkeyResults
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
+from core.models.utility_models import EnvironmentDatasetType
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType
 from core.models.utility_models import InstructTextDatasetType
-from core.models.utility_models import EnvironmentDatasetType
-from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from core.models.utility_models import TextDatasetType
-from core.models.utility_models import TrainingStatus
-from core.utils import download_s3_file
-from validator.core.config import Config
-from validator.core.models import AnyTypeRawTask
-from validator.core.models import MinerResults
-from validator.core.models import MinerResultsImage
-from validator.core.models import MinerResultsText
-from validator.core.models import Submission
+from core.models.utility_models import is_environment_task
+from core.models.utility_models import is_image_task
+from core.models.utility_models import uses_text_trainer
+from validator.db.sql import tournaments as tournament_sql
 from validator.db.sql.submissions_and_scoring import add_submission
 from validator.db.sql.submissions_and_scoring import get_task_node_losses
 from validator.db.sql.submissions_and_scoring import set_task_node_losses
@@ -40,149 +40,23 @@ from validator.db.sql.submissions_and_scoring import set_task_node_quality_score
 from validator.db.sql.tasks import get_env_task_eval_seed
 from validator.db.sql.tasks import get_expected_repo_name
 from validator.db.sql.tasks import get_nodes_assigned_to_task
-from validator.db.sql import tournaments as tournament_sql
-from validator.db.sql.tournaments import get_tournament_id_by_task_id
-from validator.db.sql.tournaments import get_training_status_for_task_and_hotkeys
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_image
 from validator.evaluation.docker_evaluation import run_evaluation_basilica_text
 from validator.evaluation.docker_evaluation import run_evaluation_pvp_group
 from validator.evaluation.docker_evaluation import run_evaluation_pvp_pair
+from validator.evaluation.ranking import calculate_miner_ranking_and_scores
 from validator.evaluation.tournament_scoring import compute_pvp_tournament_points
-from validator.utils.logging import LogContext
-from validator.utils.logging import add_context_tag
-from validator.utils.logging import get_logger
-from validator.utils.minio import async_minio_client
+from validator.infrastructure.minio_client import async_minio_client
+from validator.shared.config import Config
+from validator.shared.models import AnyTypeRawTask
+from validator.shared.models import MinerResults
+from validator.shared.models import MinerResultsImage
+from validator.shared.models import MinerResultsText
+from validator.shared.models import Submission
 
 
+PairKey = str  # sorted "hotkey_a:hotkey_b"
 logger = get_logger(__name__)
-
-def calculate_miner_ranking_and_scores(
-    miner_results: list[MinerResultsText | MinerResultsImage],
-) -> list[MinerResultsText | MinerResultsImage]:
-    logger.info("Beginning score calculation...")
-
-    valid_results = []
-    # Initialize all scores to 0.0 and set appropriate reasons
-    for result in miner_results:
-        with LogContext(miner_hotkey=result.hotkey):
-            result.score = 0.0
-            # atp, we only set score_reason in these cases (all are invalid and is_finetune == False):
-            # "Invalid/No repo submitted", "Evaluation failed", "Duplicated submission"
-            if result.score_reason:
-                continue
-            elif not result.is_finetune:
-                result.score_reason = "Non-finetuned submission"
-                logger.info(f"Miner {result.hotkey}: Non-finetuned, score initialized to 0.0")
-            elif np.isnan(result.test_loss):
-                result.score_reason = "Invalid test loss"
-                logger.info(f"Miner {result.hotkey}: Invalid test loss, score initialized to 0.0")
-            else:
-                valid_results.append(result)
-
-    if not valid_results:
-        logger.warning("No valid finetuned submissions found. All scores set to 0.0")
-        return miner_results
-
-    is_grpo_task = False
-    if valid_results and isinstance(valid_results[0], MinerResultsText):
-        is_grpo_task = valid_results[0].task_type == TaskType.GRPOTASK
-        if is_grpo_task:
-            logger.info("Processing GRPO task - higher loss is better")
-        else:
-            logger.info(f"Processing {valid_results[0].task_type} - using test_loss for ranking")
-
-    is_env_task = False
-    if valid_results and isinstance(valid_results[0], MinerResultsText):
-        is_env_task = valid_results[0].task_type == TaskType.ENVIRONMENTTASK
-        if is_env_task:
-            logger.info("Processing Env task - higher score is better")
-        else:
-            logger.info(f"Processing {valid_results[0].task_type} - using test_loss for ranking")
-
-    logger.info("Using test loss for ranking")
-    ranked_results = []
-    for result in valid_results:
-        result.adjusted_loss = result.test_loss
-        ranked_results.append((result, result.test_loss))
-        logger.info(f"Miner {result.hotkey}: test_loss {result.test_loss:.6f}")
-
-    if is_grpo_task:
-        # For GRPO, sort in reverse order (higher value is better)
-        ranked_results.sort(key=lambda x: float("-inf") if math.isnan(x[1]) else -x[1])
-        ranking_type = "GRPO score (bigger is better)"
-    elif is_env_task:
-        # For Env taks, sort in reverse order (higher value is better)
-        ranked_results.sort(key=lambda x: float("-inf") if math.isnan(x[1]) else -x[1])
-        ranking_type = "Environment score (bigger is better)"
-    else:
-        # For other tasks, sort normally (lower loss is better)
-        ranked_results.sort(key=lambda x: float("inf") if math.isnan(x[1]) else x[1])
-        ranking_type = "test_loss"
-
-    if ranked_results:
-        top_result, top_metric = ranked_results[0]
-        with LogContext(miner_hotkey=top_result.hotkey):
-            top_result.score = cts.FIRST_PLACE_SCORE
-            top_result.score_reason = f"Ranked 1st by {ranking_type}"
-            logger.info(
-                f"Miner {top_result.hotkey} (finetuned):"
-                f" test_loss={top_result.test_loss:.4f}"
-                f" {ranking_type}={top_metric:.4f}"
-                f" score={top_result.score:.4f}"
-                f" score_reason={top_result.score_reason}"
-            )
-
-    total_valid_miners = len(valid_results)
-    if total_valid_miners > cts.MIN_IDEAL_NUM_MINERS_IN_POOL:
-        penalty_count = max(1, int(total_valid_miners * 0.25))
-        penalty_start_idx = total_valid_miners - penalty_count
-
-        for result, metric in ranked_results[1:penalty_start_idx]:
-            with LogContext(miner_hotkey=result.hotkey):
-                result.score_reason = f"Ranked below top 1 by {ranking_type}"
-                logger.info(
-                    f"Miner {result.hotkey} (finetuned):"
-                    f" test_loss={result.test_loss:.4f}"
-                    f" {ranking_type}={metric:.4f}"
-                    f" score=0.0"
-                    f" score_reason={result.score_reason}"
-                )
-
-        for result, metric in ranked_results[penalty_start_idx:]:
-            with LogContext(miner_hotkey=result.hotkey):
-                result.score = cts.SCORE_PENALTY
-                result.score_reason = f"Bottom 25% ranked by {ranking_type}"
-                logger.info(
-                    f"Miner {result.hotkey} (finetuned):"
-                    f" test_loss={result.test_loss:.4f}"
-                    f" {ranking_type}={metric:.4f}"
-                    f" score={result.score:.4f}"
-                    f" score_reason={result.score_reason}"
-                )
-    else:
-        for result, metric in ranked_results[1:]:
-            with LogContext(miner_hotkey=result.hotkey):
-                result.score_reason = f"Ranked below top 1 by {ranking_type}"
-                logger.info(
-                    f"Miner {result.hotkey} (finetuned):"
-                    f" test_loss={result.test_loss:.4f}"
-                    f" {ranking_type}={metric:.4f}"
-                    f" score=0.0"
-                    f" score_reason={result.score_reason}"
-                )
-
-    # Apply penalty scores to failed submissions when valid submissions exist
-    if valid_results:
-        for result in miner_results:
-            # Find failed submissions that haven't been scored yet
-            if (not result.is_finetune or np.isnan(result.test_loss)) and result.score == 0.0:
-                result.score = cts.SCORE_PENALTY
-                logger.info(
-                    f"Miner {result.hotkey}: Failed submission ({result.score_reason}), "
-                    f"applying penalty score {cts.SCORE_PENALTY}"
-                )
-
-    return miner_results
 
 
 def _get_dataset_type(task: AnyTypeRawTask) -> TextDatasetType | None:
@@ -195,7 +69,7 @@ def _get_dataset_type(task: AnyTypeRawTask) -> TextDatasetType | None:
             format=task.format,
             no_input_format=task.no_input_format,
         )
-    elif task.task_type == TaskType.IMAGETASK:
+    elif is_image_task(task.task_type):
         return None
     elif task.task_type == TaskType.DPOTASK:
         return DpoDatasetType(
@@ -213,7 +87,7 @@ def _get_dataset_type(task: AnyTypeRawTask) -> TextDatasetType | None:
             reward_functions=task.reward_functions,
             extra_column=task.extra_column,
         )
-    elif task.task_type == TaskType.ENVIRONMENTTASK:
+    elif is_environment_task(task.task_type):
         env_names = getattr(task, "environment_names", [])
         return EnvironmentDatasetType(
             environment_names=env_names or None
@@ -234,7 +108,7 @@ def _get_dataset_type(task: AnyTypeRawTask) -> TextDatasetType | None:
 def _create_failed_miner_result(hotkey: str, score_reason: str, task_type: TaskType) -> MinerResults:
     """Create a result object for failed miner submissions with initial score of 0.0.
     The score may later be adjusted to a penalty if valid submissions exist."""
-    if task_type in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK, TaskType.CHATTASK, TaskType.ENVIRONMENTTASK]:
+    if uses_text_trainer(task_type):
         return MinerResultsText(
             hotkey=hotkey,
             test_loss=np.nan,
@@ -283,7 +157,7 @@ async def _evaluate_submissions(
     if len(unique_repos) != len(submission_repos):
         logger.warning(f"Found duplicate repos. Deduplicating {len(submission_repos)} repos to {len(unique_repos)} unique repos")
 
-    if task.task_type in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK, TaskType.CHATTASK, TaskType.ENVIRONMENTTASK]:
+    if uses_text_trainer(task.task_type):
         results: dict[str, EvaluationResultText | Exception] = {}
         repos_to_evaluate = []
         base_model = task.augmented_model_id or task.model_id
@@ -297,12 +171,12 @@ async def _evaluate_submissions(
         if not repos_to_evaluate:
             return results
 
-        if task.task_type != TaskType.ENVIRONMENTTASK:
+        if not is_environment_task(task.task_type):
             assert task.test_data is not None, "Test data shouldn't be none for text tasks"
 
         # Fetch eval_seed for environment tasks
         eval_seed = None
-        if task.task_type == TaskType.ENVIRONMENTTASK and config is not None and task.task_id is not None:
+        if is_environment_task(task.task_type) and config is not None and task.task_id is not None:
             eval_seed = await get_env_task_eval_seed(task.task_id, config.psql_db)
             logger.info(f"Fetched eval_seed={eval_seed} for environment task {task.task_id}")
 
@@ -318,7 +192,7 @@ async def _evaluate_submissions(
         }
 
         logger.info("Starting test evaluation")
-        if task.task_type != TaskType.ENVIRONMENTTASK:
+        if not is_environment_task(task.task_type):
             test_results = await run_evaluation_basilica_text(dataset=task.test_data, **evaluation_params)
         else:
             test_results = await run_evaluation_basilica_text(dataset="proxy", **evaluation_params)
@@ -333,7 +207,7 @@ async def _evaluate_submissions(
                 test_result = test_eval_results[repo]
                 results[repo] = test_result
 
-    elif task.task_type == TaskType.IMAGETASK:
+    elif is_image_task(task.task_type):
         results: dict[str, EvaluationResultImage | Exception] = {}
         repos_to_evaluate = []
         base_model = task.augmented_model_id or task.model_id
@@ -407,7 +281,11 @@ async def _update_scores(task: AnyTypeRawTask, task_results: list[MinerResultsTe
                 await add_submission(result.submission, psql_db)
 
 
-async def _persist_raw_task_results(task: AnyTypeRawTask, task_results: list[MinerResultsText | MinerResultsImage], psql_db) -> None:
+async def _persist_raw_task_results(
+    task: AnyTypeRawTask,
+    task_results: list[MinerResultsText | MinerResultsImage],
+    psql_db,
+) -> None:
     assert task.task_id is not None, "task id needs to be set to persist losses"
     for result in task_results:
         with LogContext(miner_hotkey=result.hotkey):
@@ -438,7 +316,7 @@ def _result_from_persisted_row(task: AnyTypeRawTask, hotkey: str, row: dict | No
             task_type=task.task_type,
         )
 
-    if task.task_type == TaskType.IMAGETASK:
+    if is_image_task(task.task_type):
         return MinerResultsImage(
             hotkey=hotkey,
             test_loss=float(test_loss),
@@ -559,9 +437,9 @@ async def process_miners_pool(
                             )
                         )
                         continue
-                    elif task.task_type in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK, TaskType.CHATTASK, TaskType.ENVIRONMENTTASK]:
+                    elif uses_text_trainer(task.task_type):
                         test_result = eval_result
-                    elif task.task_type == TaskType.IMAGETASK:
+                    elif is_image_task(task.task_type):
                         test_result = eval_result
                         test_result.eval_loss = _calculate_weighted_loss_for_image_eval(test_result)
                     else:
@@ -575,7 +453,7 @@ async def process_miners_pool(
                         updated_on=datetime.now(),
                     )
 
-                if task.task_type in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK, TaskType.CHATTASK, TaskType.ENVIRONMENTTASK]:
+                if uses_text_trainer(task.task_type):
                     results.append(
                         MinerResultsText(
                             hotkey=miner.hotkey,
@@ -586,7 +464,7 @@ async def process_miners_pool(
                             task_type=task.task_type,
                         )
                     )
-                elif task.task_type == TaskType.IMAGETASK:
+                elif is_image_task(task.task_type):
                     results.append(
                         MinerResultsImage(
                             hotkey=miner.hotkey,
@@ -616,7 +494,7 @@ async def process_miners_pool(
 
 def should_use_pvp(task: AnyTypeRawTask) -> bool:
     """Check if this task should use PvP evaluation based on its games' eval_type."""
-    if task.task_type != TaskType.ENVIRONMENTTASK:
+    if not is_environment_task(task.task_type):
         return False
     env_names = getattr(task, "environment_names", None)
     if not env_names:
@@ -708,7 +586,10 @@ async def _run_pvp_group_eval(
     )
     for pr in group_results.pair_results:
         for env, er in pr.results.items():
-            logger.info(f"  {pr.hotkey_a[:8]} vs {pr.hotkey_b[:8]} {env.value}: a={er.model_a_wins} b={er.model_b_wins} d={er.draws}")
+            logger.info(
+                f"  {pr.hotkey_a[:8]} vs {pr.hotkey_b[:8]} {env.value}: "
+                f"a={er.model_a_wins} b={er.model_b_wins} d={er.draws}"
+            )
     standings = compute_pvp_tournament_points(group_results, weights=env_weights)
     points_by_hotkey = {s.hotkey: s.points for s in standings}
     logger.info(f"Standings: {[(s.hotkey[:8], s.points) for s in standings]}")
@@ -934,5 +815,3 @@ def has_disk_cache_error(task_results: list[MinerResultsText | MinerResultsImage
         logger.error(f"Error checking for disk cache error: {e}")
         return False
     return False
-
-

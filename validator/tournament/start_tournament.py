@@ -1,9 +1,9 @@
 import asyncio
 
+from core.logging import get_logger
 from core.models.tournament_models import TournamentType
-from validator.core.config import load_config
+from validator.shared.config import load_config
 from validator.tournament.tournament_manager import create_basic_tournament
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)

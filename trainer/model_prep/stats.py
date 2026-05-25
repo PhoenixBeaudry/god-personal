@@ -11,26 +11,28 @@ from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
+from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer
 
+from core.models.model_prep_models import BaselineStats
+from core.models.model_prep_models import DpoBaselineStats
+from core.models.model_prep_models import DpoDatasetStats
+from core.models.model_prep_models import DpoTrainingDynamics
+from core.models.model_prep_models import GrpoBaselineStats
+from core.models.model_prep_models import GrpoDatasetStats
+from core.models.model_prep_models import GrpoTrainingDynamics
+from core.models.model_prep_models import InstructBaselineStats
+from core.models.model_prep_models import InstructDatasetStats
+from core.models.model_prep_models import InstructTrainingDynamics
+from core.models.model_prep_models import LayerGradStats
+from core.models.model_prep_models import LayerGroupWeightStats
+from core.models.model_prep_models import SeqLengthDistribution
+from core.models.model_prep_models import WeightStats
 from core.models.utility_models import TaskType
-from core.models.model_prep_models import (
-    BaselineStats,
-    DpoBaselineStats,
-    DpoDatasetStats,
-    DpoTrainingDynamics,
-    GrpoBaselineStats,
-    GrpoDatasetStats,
-    GrpoTrainingDynamics,
-    InstructBaselineStats,
-    InstructDatasetStats,
-    InstructTrainingDynamics,
-    LayerGradStats,
-    LayerGroupWeightStats,
-    SeqLengthDistribution,
-    WeightStats,
-)
+from core.models.utility_models import normalize_task_type
+
 
 BPB_REFERENCE_MODEL = "gpt2"
 
@@ -180,7 +182,8 @@ def classify_layer(name: str) -> str:
 
 def _compute_near_duplicate_rate(texts: list[str], num_perm: int = 128, threshold: float = 0.5) -> float:
     try:
-        from datasketch import MinHash, MinHashLSH
+        from datasketch import MinHash
+        from datasketch import MinHashLSH
         lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
         minhashes = []
         for i, text in enumerate(texts):
@@ -314,7 +317,11 @@ def _compute_base_training_dynamics(
     for h in hooks:
         h.remove()
     activation_rms = {n: float(np.mean(v)) for n, v in activation_rms_accum.items()}
-    print(f"[stats] Eval loop done in {time.time() - t_start:.1f}s (loss={init_loss:.4f}, {len(batch_losses)} batches)", flush=True)
+    print(
+        f"[stats] Eval loop done in {time.time() - t_start:.1f}s "
+        f"(loss={init_loss:.4f}, {len(batch_losses)} batches)",
+        flush=True,
+    )
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -454,7 +461,14 @@ def _tokenize_prompt_completion(
     return torch.tensor([combined], dtype=torch.long), prompt_len
 
 
-def _compute_masked_loss(model, tokenizer, prompt_texts: list[str], completion_texts: list[str], device, max_length: int = 512) -> float:
+def _compute_masked_loss(
+    model,
+    tokenizer,
+    prompt_texts: list[str],
+    completion_texts: list[str],
+    device,
+    max_length: int = 512,
+) -> float:
     """Compute loss masked to completion tokens only."""
     model.eval()
     total_loss = 0.0
@@ -478,7 +492,14 @@ def _compute_masked_loss(model, tokenizer, prompt_texts: list[str], completion_t
     return total_loss / max(n, 1)
 
 
-def _compute_log_probs(model, tokenizer, prompts: list[str], completions: list[str], device, max_length: int = 512) -> list[float]:
+def _compute_log_probs(
+    model,
+    tokenizer,
+    prompts: list[str],
+    completions: list[str],
+    device,
+    max_length: int = 512,
+) -> list[float]:
     """Compute mean log-prob of completions given prompts."""
     model.eval()
     log_probs = []
@@ -652,7 +673,11 @@ def _compute_grpo_stats(
     if reward_functions:
         completions = _generate_completions(model, tokenizer, prompts[:10], device)
         for rf in reward_functions:
-            func_code = rf.get("reward_func") if isinstance(rf, dict) else (rf.reward_func if hasattr(rf, "reward_func") else str(rf))
+            func_code = (
+                rf.get("reward_func")
+                if isinstance(rf, dict)
+                else (rf.reward_func if hasattr(rf, "reward_func") else str(rf))
+            )
             # Extract function name from source for clean keys
             name_match = re.match(r"def\s+(\w+)", func_code.strip()) if func_code else None
             fallback_name = name_match.group(1) if name_match else func_code[:30]
@@ -707,6 +732,7 @@ def compute_text_stats(
     reward_functions=None,
 ) -> BaselineStats:
     """Compute stats for text-based tasks (instruct, DPO, GRPO, chat)."""
+    task_type = normalize_task_type(task_type)
     device = str(_get_model_device(model))
 
     if task_type == TaskType.CHATTASK:

@@ -2,11 +2,11 @@ import statistics
 
 import numpy as np
 
+from core.logging import get_logger
 from core.models.tournament_models import TaskPerformanceDifference
 from core.models.tournament_models import TournamentPerformanceData
-from core.models.utility_models import TaskType
-from validator.core import constants as cts
-from validator.core.constants import EMISSION_BURN_HOTKEY
+from core.models.utility_models import is_environment_task
+from core.models.utility_models import scores_higher_is_better
 from validator.db.sql.tasks import get_task
 from validator.db.sql.tournament_performance import get_boss_round_winner_task_pairs
 from validator.db.sql.tournament_performance import get_task_scores_batch
@@ -15,13 +15,34 @@ from validator.db.sql.tournaments import count_champion_consecutive_wins_at_tour
 from validator.db.sql.tournaments import get_final_round_id
 from validator.db.sql.tournaments import get_tournament
 from validator.db.sql.tournaments import get_tournament_tasks
-from validator.evaluation.scoring import calculate_miner_ranking_and_scores
-from validator.tournament.utils import get_progressive_threshold
-from validator.tournament.utils import get_task_results_for_ranking
-from validator.utils.logging import get_logger
+from validator.evaluation.ranking import calculate_miner_ranking_and_scores
+from validator.shared import constants as cts
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.tournament.task_results import get_task_results_for_ranking
+from validator.tournament.thresholds import get_progressive_threshold
 
 
 logger = get_logger(__name__)
+
+
+def _best_score(scores: list[float], task_type: str) -> float:
+    if scores_higher_is_better(task_type):
+        return max(scores)
+    return min(scores)
+
+
+def _relative_performance_difference(
+    tournament_winner_score: float,
+    benchmark_score: float,
+    task_type: str,
+) -> float:
+    if benchmark_score <= 0:
+        return 0.0
+
+    if scores_higher_is_better(task_type):
+        return (benchmark_score - tournament_winner_score) / benchmark_score
+
+    return (tournament_winner_score - benchmark_score) / benchmark_score
 
 
 async def calculate_boss_round_performance_differences(tournament_id: str, psql_db) -> list[TaskPerformanceDifference]:
@@ -60,13 +81,13 @@ async def calculate_boss_round_performance_differences(tournament_id: str, psql_
 
         ranked_results = calculate_miner_ranking_and_scores(miner_results)
 
-        is_higher_better = task_obj.task_type in [TaskType.GRPOTASK, TaskType.ENVIRONMENTTASK]
+        is_higher_better = scores_higher_is_better(task_obj.task_type)
 
         boss_score = None
         challenger_score = None
         challenger_hotkey = None
 
-        if task_obj.task_type == TaskType.ENVIRONMENTTASK:
+        if is_environment_task(task_obj.task_type):
             valid_participants = [
                 (result.hotkey, result.adjusted_loss)
                 for result in ranked_results
@@ -141,7 +162,7 @@ async def calculate_boss_round_performance_differences(tournament_id: str, psql_
             )
             continue
 
-        if task_obj.task_type == TaskType.ENVIRONMENTTASK:
+        if is_environment_task(task_obj.task_type):
             num_envs = len(task_obj.environment_names) if task_obj.environment_names else 1
             win_pct = (2 * challenger_score + boss_score - 3 * num_envs) / (3 * num_envs)
             win_pct = max(0.0, win_pct)
@@ -184,8 +205,8 @@ async def calculate_boss_round_performance_differences(tournament_id: str, psql_
     return performance_differences
 
 
-async def get_tournament_performance_data(tournament_id: str, psql_db) -> list[TournamentPerformanceData]:
-    """Get detailed performance data for tournament vs synthetic comparison."""
+async def get_legacy_sync_performance_data(tournament_id: str, psql_db) -> list[TournamentPerformanceData]:
+    """Return legacy sync comparison data for the public tournament details API."""
     task_pairs = await get_boss_round_winner_task_pairs(tournament_id, psql_db)
     logger.info(f"Found {len(task_pairs)} task pairs for performance comparison")
 
@@ -205,7 +226,9 @@ async def get_tournament_performance_data(tournament_id: str, psql_db) -> list[T
 
     for i, task_pair in enumerate(task_pairs):
         logger.info(
-            f"Processing task pair {i + 1}/{len(task_pairs)}: tournament={task_pair.tournament_task_id}, synthetic={task_pair.synthetic_task_id}, winner={task_pair.winner_hotkey}"
+            f"Processing task pair {i + 1}/{len(task_pairs)}: "
+            f"tournament={task_pair.tournament_task_id}, "
+            f"synthetic={task_pair.synthetic_task_id}, winner={task_pair.winner_hotkey}"
         )
 
         tournament_scores = all_scores.get(task_pair.tournament_task_id, [])
@@ -231,31 +254,17 @@ async def get_tournament_performance_data(tournament_id: str, psql_db) -> list[T
                 break
 
         if synthetic_scores:
-            task_type = TaskType(task_pair.task_type)
-
-            if task_type in [TaskType.GRPOTASK, TaskType.ENVIRONMENTTASK]:
-                best_synthetic_score = max(score.test_loss for score in synthetic_scores)
-                logger.info(f"Best synthetic score (GRPO/Environment - higher is better): {best_synthetic_score}")
-            else:
-                best_synthetic_score = min(score.test_loss for score in synthetic_scores)
-                logger.info(f"Best synthetic score (lower is better): {best_synthetic_score}")
+            best_synthetic_score = _best_score([score.test_loss for score in synthetic_scores], task_pair.task_type)
+            ranking_direction = "higher is better" if scores_higher_is_better(task_pair.task_type) else "lower is better"
+            logger.info(f"Best synthetic score ({ranking_direction}): {best_synthetic_score}")
 
         if winner_tournament_score is not None and best_synthetic_score is not None:
-            task_type = TaskType(task_pair.task_type)
-            logger.info(f"Task type: {task_type}")
-
-            if task_type in [TaskType.GRPOTASK, TaskType.ENVIRONMENTTASK]:
-                if best_synthetic_score > 0:
-                    # For GRPO: higher is better, so positive diff means tournament is worse
-                    performance_diff = (best_synthetic_score - winner_tournament_score) / best_synthetic_score
-                else:
-                    performance_diff = 0.0
-            else:
-                if best_synthetic_score > 0:
-                    # For non-GRPO: lower is better, so positive diff means tournament is worse
-                    performance_diff = (winner_tournament_score - best_synthetic_score) / best_synthetic_score
-                else:
-                    performance_diff = 0.0
+            logger.info(f"Task type: {task_pair.task_type}")
+            performance_diff = _relative_performance_difference(
+                tournament_winner_score=winner_tournament_score,
+                benchmark_score=best_synthetic_score,
+                task_type=task_pair.task_type,
+            )
 
             performance_data.append(
                 TournamentPerformanceData(
@@ -272,7 +281,8 @@ async def get_tournament_performance_data(tournament_id: str, psql_db) -> list[T
         else:
             if winner_tournament_score is None and best_synthetic_score is not None:
                 logger.warning(
-                    f"Winner {task_pair.winner_hotkey} has no score in tournament task but synthetic miners do - applying max burn reduction"
+                    f"Winner {task_pair.winner_hotkey} has no score in tournament task "
+                    "but synthetic miners do - applying max burn reduction"
                 )
                 performance_diff = cts.MAX_BURN_REDUCTION / cts.BURN_REDUCTION_RATE
 

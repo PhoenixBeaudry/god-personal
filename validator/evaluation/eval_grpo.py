@@ -1,7 +1,7 @@
 import os
 import subprocess
-import time
 import tempfile
+import time
 import urllib.request
 
 
@@ -17,25 +17,25 @@ from transformers import AutoTokenizer
 from trl import GRPOConfig
 from trl import GRPOTrainer
 
+from core.logging import get_logger
 from core.models.utility_models import GrpoDatasetType
-from validator.core import constants as cst
-from validator.core.models import EvaluationArgs
-from validator.evaluation.common import ProgressLoggerCallback
-from validator.evaluation.common import _load_and_update_evaluation_config
-from validator.evaluation.common import _log_dataset_and_model_info
-from validator.evaluation.common import check_and_log_base_model_size
-from validator.evaluation.common import load_finetuned_model
-from validator.evaluation.common import load_model
-from validator.evaluation.common import load_results_dict
-from validator.evaluation.common import load_tokenizer
-from validator.evaluation.common import log_memory_stats
-from validator.evaluation.common import save_results_dict
-from validator.evaluation.common import sanitize_tokenizer_for_models
-from validator.evaluation.utils import check_for_lora
-from validator.evaluation.utils import model_is_a_finetune
-from validator.utils.logging import get_logger
-from validator.utils.reward_functions import supports_extra_data
-from validator.utils.reward_functions import validate_reward_function
+from validator.evaluation.container_results import load_results_dict
+from validator.evaluation.container_results import save_results_dict
+from validator.evaluation.evaluation_config import _load_and_update_evaluation_config
+from validator.evaluation.evaluation_logging import ProgressLoggerCallback
+from validator.evaluation.evaluation_logging import _log_dataset_and_model_info
+from validator.evaluation.evaluation_logging import log_memory_stats
+from validator.evaluation.model_checks import check_for_lora
+from validator.evaluation.model_checks import model_is_a_finetune
+from validator.evaluation.model_loading import check_and_log_base_model_size
+from validator.evaluation.model_loading import load_finetuned_model
+from validator.evaluation.model_loading import load_model
+from validator.evaluation.model_loading import load_tokenizer
+from validator.evaluation.model_loading import sanitize_tokenizer_for_models
+from validator.shared import constants as cst
+from validator.shared.models import EvaluationArgs
+from validator.tasks.reward_functions import supports_extra_data
+from validator.tasks.reward_functions import validate_reward_function
 
 
 logger = get_logger(__name__)
@@ -169,7 +169,8 @@ def evaluate_grpo_model(
                         avg_weighted = sum(weighted_results) / len(weighted_results) if weighted_results else 0
                         total_count = len(captured_rewards[func_name])
                         logger.info(
-                            f"🏆 {func_name}: batch_avg_raw={avg_raw:.4f}, batch_avg_weighted={avg_weighted:.4f}, total_samples={total_count}"
+                            f"🏆 {func_name}: batch_avg_raw={avg_raw:.4f}, "
+                            f"batch_avg_weighted={avg_weighted:.4f}, total_samples={total_count}"
                         )
 
                     return weighted_results
@@ -187,7 +188,8 @@ def evaluate_grpo_model(
                         avg_weighted = sum(weighted_results) / len(weighted_results) if weighted_results else 0
                         total_count = len(captured_rewards[func_name])
                         logger.info(
-                            f"🏆 {func_name}: batch_avg_raw={avg_raw:.4f}, batch_avg_weighted={avg_weighted:.4f}, total_samples={total_count}"
+                            f"🏆 {func_name}: batch_avg_raw={avg_raw:.4f}, "
+                            f"batch_avg_weighted={avg_weighted:.4f}, total_samples={total_count}"
                         )
 
                     return weighted_results
@@ -238,7 +240,8 @@ def evaluate_grpo_model(
             final_raw_rewards[name] = sum(raw_reward_list) / len(raw_reward_list) if raw_reward_list else 0
 
             logger.info(
-                f"🏆 {name}: avg_raw={final_raw_rewards[name]:.4f}, avg_weighted={final_weighted_rewards[name]:.4f}, samples={len(captured_reward_list)}"
+                f"🏆 {name}: avg_raw={final_raw_rewards[name]:.4f}, "
+                f"avg_weighted={final_weighted_rewards[name]:.4f}, samples={len(captured_reward_list)}"
             )
 
     total_avg_reward = sum(final_weighted_rewards.values())
@@ -342,8 +345,6 @@ def main():
     repos = [m.strip() for m in models_str.split(",") if m.strip()]
 
     timeout_seconds = 18_000
-    timeout_adjusted = False
-
     for repo in repos:
         try:
             evaluation_args = EvaluationArgs(

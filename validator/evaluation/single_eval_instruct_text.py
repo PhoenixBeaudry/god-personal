@@ -1,7 +1,7 @@
 import sys
 
-from validator.core.models import EvaluationArgs
 from validator.evaluation.eval_instruct_text import evaluate_repo
+from validator.shared.models import EvaluationArgs
 
 
 if __name__ == "__main__":

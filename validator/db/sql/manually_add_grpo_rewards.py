@@ -5,7 +5,7 @@ from typing import Callable
 import asyncpg
 
 import validator.db.constants as cst
-from validator.utils.logging import get_logger
+from core.logging import get_logger
 
 
 logger = get_logger(__name__)
@@ -67,7 +67,7 @@ async def update_is_manual_for_reward_functions(
                     WHERE {cst.REWARD_FUNC} LIKE $2
                 """
                 pattern = f"%def {func_name}%"
-                result = await conn.execute(query, is_manual, pattern)
+                await conn.execute(query, is_manual, pattern)
                 logger.info(f"Updated is_manual={is_manual} for function: {func_name}")
     finally:
         await pool.close()

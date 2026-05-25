@@ -5,10 +5,10 @@ from fiber import SubstrateInterface
 from fiber.chain.models import Node
 
 from core.constants import NETUID
+from core.logging import get_logger
 from validator.db import constants as dcst
 from validator.db.database import PSQLDB
-from validator.utils.logging import get_logger
-from validator.utils.query_substrate import query_substrate
+from validator.infrastructure.substrate import query_substrate
 
 
 logger = get_logger(__name__)

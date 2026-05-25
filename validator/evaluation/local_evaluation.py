@@ -14,6 +14,11 @@ from docker.types import Mount
 from huggingface_hub import snapshot_download
 
 from core import constants as cst
+from core.downloads import download_s3_file
+from core.logging import get_all_context_tags
+from core.logging import get_environment_logger
+from core.logging import get_logger
+from core.logging import stream_container_logs
 from core.models.payload_models import DockerEvaluationResults
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
@@ -22,23 +27,18 @@ from core.models.utility_models import FileFormat
 from core.models.utility_models import GrpoDatasetType
 from core.models.utility_models import ImageModelType
 from core.models.utility_models import InstructTextDatasetType
-from core.utils import download_s3_file
-from validator.core import constants as vcst
+from validator.evaluation.basilica_deployments import wait_for_basilica_health
 from validator.evaluation.eval_environment import _build_sglang_command
 from validator.evaluation.eval_environment import _download_lora_with_retry
 from validator.evaluation.eval_environment import _download_model_with_retry
 from validator.evaluation.eval_environment import _merge_base_and_lora
 from validator.evaluation.eval_environment import _run_environment_evaluation as _run_eval_environment_rollouts
-from validator.evaluation.utils import check_for_lora
-from validator.evaluation.utils import check_lora_has_added_tokens
-from validator.evaluation.utils import normalize_rewards_and_compute_loss
-from validator.evaluation.utils import process_evaluation_results
-from validator.evaluation.utils import wait_for_basilica_health
+from validator.evaluation.model_checks import check_for_lora
+from validator.evaluation.model_checks import check_lora_has_added_tokens
+from validator.evaluation.result_processing import normalize_rewards_and_compute_loss
+from validator.evaluation.result_processing import process_evaluation_results
+from validator.shared import constants as vcst
 from validator.tasks.task_prep import unzip_to_temp_path
-from validator.utils.logging import get_all_context_tags
-from validator.utils.logging import get_environment_logger
-from validator.utils.logging import get_logger
-from validator.utils.logging import stream_container_logs
 
 
 logger = get_logger(__name__)
@@ -155,7 +155,12 @@ async def run_evaluation_docker_text(
                     environment=environment,
                     volumes=volume_bindings,
                     runtime="nvidia",
-                    device_requests=[docker.types.DeviceRequest(capabilities=[["gpu"]], device_ids=[str(gid) for gid in gpu_ids])],
+                    device_requests=[
+                        docker.types.DeviceRequest(
+                            capabilities=[["gpu"]],
+                            device_ids=[str(gid) for gid in gpu_ids],
+                        )
+                    ],
                     detach=True,
                 )
                 log_task = asyncio.create_task(asyncio.to_thread(stream_container_logs, container, None, get_all_context_tags()))
@@ -168,7 +173,10 @@ async def run_evaluation_docker_text(
                 eval_results = await get_evaluation_results(container)
                 return process_evaluation_results(eval_results, is_image=False)
             except Exception as e:
-                logger.error(f"Failed to retrieve {task_type} evaluation results: {str(e)}, retrying in {retry_delay}s...", exc_info=True)
+                logger.error(
+                    f"Failed to retrieve {task_type} evaluation results: {str(e)}, retrying in {retry_delay}s...",
+                    exc_info=True,
+                )
                 if container is not None:
                     try:
                         await asyncio.to_thread(container.remove, force=True)
@@ -249,7 +257,12 @@ async def run_evaluation_docker_grpo(
                     environment=environment,
                     volumes=volume_bindings,
                     runtime="nvidia",
-                    device_requests=[docker.types.DeviceRequest(capabilities=[["gpu"]], device_ids=[str(gid) for gid in gpu_ids])],
+                    device_requests=[
+                        docker.types.DeviceRequest(
+                            capabilities=[["gpu"]],
+                            device_ids=[str(gid) for gid in gpu_ids],
+                        )
+                    ],
                     detach=True,
                     network_mode="none",
                 )
@@ -333,7 +346,12 @@ async def run_evaluation_local_environment(
     for repo in models:
         eval_id = str(uuid.uuid4())
         repo_name = repo.split("/")[-1]
-        env_logger = get_environment_logger(name=f"{repo_name}-{eval_id[:8]}", repo_id=repo, eval_id=eval_id, model=original_model)
+        env_logger = get_environment_logger(
+            name=f"{repo_name}-{eval_id[:8]}",
+            repo_id=repo,
+            eval_id=eval_id,
+            model=original_model,
+        )
         local_env_server_port = int(os.getenv("LOCAL_ENV_SERVER_PORT", str(vcst.LOCAL_ENV_SERVER_PORT)))
         sglang_health_timeout = int(os.getenv("SGLANG_HEALTH_TIMEOUT", "1800"))
         env_health_timeout = int(os.getenv("ENV_SERVER_HEALTH_TIMEOUT", "600"))
@@ -573,7 +591,12 @@ async def run_evaluation_docker_image(
                     mounts=mounts,
                     environment=environment,
                     runtime="nvidia",
-                    device_requests=[docker.types.DeviceRequest(capabilities=[["gpu"]], device_ids=[str(gid) for gid in gpu_ids])],
+                    device_requests=[
+                        docker.types.DeviceRequest(
+                            capabilities=[["gpu"]],
+                            device_ids=[str(gid) for gid in gpu_ids],
+                        )
+                    ],
                     detach=True,
                 )
                 log_task = asyncio.create_task(asyncio.to_thread(stream_container_logs, container, None, get_all_context_tags()))

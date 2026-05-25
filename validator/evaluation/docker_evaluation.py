@@ -4,19 +4,17 @@ import uuid
 from uuid import UUID
 
 from core import constants as cst
+from core.logging import get_environment_logger
+from core.logging import get_logger
 from core.models.payload_models import DockerEvaluationResults
-from core.models.payload_models import EvaluationResultImage
-from core.models.payload_models import EvaluationResultText
-from core.models.pvp_models import (
-    PvPEvalConfig,
-    PvPEvalResults,
-    PvPGroupModelSpec,
-    PvPGroupResults,
-    PvPMatchupConfig,
-    PvPMode,
-    PvPModelSpec,
-    PvPPairResult,
-)
+from core.models.pvp_models import PvPEvalConfig
+from core.models.pvp_models import PvPEvalResults
+from core.models.pvp_models import PvPGroupModelSpec
+from core.models.pvp_models import PvPGroupResults
+from core.models.pvp_models import PvPMatchupConfig
+from core.models.pvp_models import PvPMode
+from core.models.pvp_models import PvPModelSpec
+from core.models.pvp_models import PvPPairResult
 from core.models.utility_models import ChatTemplateDatasetType
 from core.models.utility_models import DpoDatasetType
 from core.models.utility_models import EnvironmentDatasetType
@@ -25,17 +23,16 @@ from core.models.utility_models import GrpoDatasetType
 from core.models.utility_models import ImageModelType
 from core.models.utility_models import InstructTextDatasetType
 from core.models.utility_models import TaskType
-from validator.core import constants as vcst
 from validator.db.database import PSQLDB
 from validator.evaluation.basilica import _poll_basilica_result
 from validator.evaluation.basilica import run_basilica_eval_repos
+from validator.evaluation.basilica_deployments import create_basilica_eval_runner_source
+from validator.evaluation.basilica_deployments import log_basilica_logs_block
 from validator.evaluation.db_utils import load_eval_pair_state_for_models
-from validator.evaluation.utils import create_basilica_eval_runner_source
-from validator.evaluation.utils import log_basilica_logs_block
-from validator.evaluation.utils import normalize_rewards_and_compute_loss
-from validator.evaluation.utils import process_evaluation_results
-from validator.utils.logging import get_environment_logger
-from validator.utils.logging import get_logger
+from validator.evaluation.result_processing import normalize_rewards_and_compute_loss
+from validator.evaluation.result_processing import process_evaluation_results
+from validator.shared import constants as vcst
+
 
 try:
     import basilica

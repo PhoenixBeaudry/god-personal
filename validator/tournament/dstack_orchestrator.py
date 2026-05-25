@@ -4,40 +4,48 @@ import math
 import os
 import string
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
 
 import httpx
 from dotenv import load_dotenv
-from tenacity import retry
-from tenacity import stop_after_attempt
-from tenacity import wait_exponential
 
 import validator.tournament.constants as cst
+from core.logging import LogContext
+from core.logging import get_logger
 from core.models.payload_models import DstackRunStatus
 from core.models.tournament_models import GpuRequirement
-from core.models.tournament_models import TournamentType
+from core.models.utility_models import Backend
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
-from validator.core.config import Config
-from validator.core.config import load_config
-from validator.core.constants import DSTACK_RUNS_APPLY_ENDPOINT
-from validator.core.constants import DSTACK_RUNS_GET_ENDPOINT
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.models import AnyTypeRawTask
+from core.models.utility_models import is_image_task
+from core.models.utility_models import normalize_task_type
+from trainer.model_artifacts import get_anonymous_model_dir
 from validator.db.sql import tasks as task_sql
-from core.models.utility_models import Backend
 from validator.db.sql import tournaments as tournament_sql
 from validator.evaluation.scoring import _get_dataset_type
-from validator.tournament.utils import get_tournament_gpu_requirement
-from trainer.utils.model_anonymizer import get_anonymous_model_dir
-from validator.utils.logging import LogContext
-from validator.utils.logging import get_logger
-from validator.utils.util import try_db_connections
+from validator.shared.config import Config
+from validator.shared.config import load_config
+from validator.shared.connections import try_db_connections
+from validator.shared.constants import DSTACK_RUNS_APPLY_ENDPOINT
+from validator.shared.constants import DSTACK_RUNS_GET_ENDPOINT
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.models import AnyTypeRawTask
+from validator.tournament.resources import get_tournament_gpu_requirement
 
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class DstackTaskRuntime:
+    gpu_name: str
+    gpu_count: int
+    docker_image: str
+    regions: list[str]
+    label: str
 
 
 def load_dstack_config() -> dict:
@@ -179,7 +187,7 @@ async def process_pending_organic_tasks(config: Config):
                 TrainingStatus.PENDING,
             )
             
-            organic_tasks = [t for t in pending_training_tasks if t.priority == 1 and t.task.backend is not None and t.task.backend.value == Backend.RUNPOD.value]
+            organic_tasks = [t for t in pending_training_tasks if _is_runpod_organic_training_task(t)]
             
             logger.info(f"Fetched {len(organic_tasks)} pending organic tasks")
             
@@ -236,7 +244,7 @@ async def schedule_organic_tasks_for_dstack(pending_training_tasks: list, config
                     task, run_name, config
                 )
                 
-                submitted_run_name = await submit_dstack_run(dstack_config)
+                await submit_dstack_run(dstack_config)
 
                 await tournament_sql.update_dstack_runname(
                     task.task_id, oldest_task_training.hotkey, run_name, config.psql_db
@@ -275,6 +283,49 @@ def _generate_dstack_run_name(task_id: str, attempt_number: int = 0) -> str:
     return run_name
 
 
+def _is_runpod_organic_training_task(training_task) -> bool:
+    backend = getattr(training_task.task, "backend", None)
+    backend_value = backend.value if hasattr(backend, "value") else backend
+    return training_task.priority == 1 and backend_value == Backend.RUNPOD.value
+
+
+def _task_type_env_value(task_type: TaskType | str) -> str:
+    return normalize_task_type(task_type).value
+
+
+def _get_dstack_task_runtime(task_type: TaskType | str, required_gpus: GpuRequirement) -> DstackTaskRuntime:
+    if is_image_task(task_type):
+        return DstackTaskRuntime(
+            gpu_name="H100",
+            gpu_count=_get_gpu_count_from_requirement(required_gpus),
+            docker_image=os.getenv("DSTACK_IMAGE_TASK_DOCKER_IMAGE", "diagonalge/image-winner-single:latest"),
+            regions=cst.DSTACK_IMAGE_REGIONS,
+            label="image task",
+        )
+
+    return DstackTaskRuntime(
+        gpu_name="H200",
+        gpu_count=_get_h200_count_from_requirement(required_gpus),
+        docker_image=os.getenv("DSTACK_TEXT_TASK_DOCKER_IMAGE", "diagonalge/text-winner-single:latest"),
+        regions=cst.DSTACK_TEXT_REGIONS,
+        label=f"text task (type={task_type})",
+    )
+
+
+def _add_training_data_env(task_env: dict[str, object], task: AnyTypeRawTask) -> None:
+    if is_image_task(task.task_type):
+        task_env["DATASET_ZIP"] = task.training_data
+        task_env["MODEL_TYPE"] = task.model_type
+        return
+
+    task_env["DATASET"] = task.training_data
+    dataset_type = _get_dataset_type(task)
+    if dataset_type:
+        dataset_type_dict = dataset_type.model_dump() if hasattr(dataset_type, "model_dump") else dataset_type.dict()
+        task_env["DATASET_TYPE"] = json.dumps(dataset_type_dict)
+    task_env["FILE_FORMAT"] = "s3"
+
+
 async def _create_dstack_request(
     task: AnyTypeRawTask,
     run_name: str,
@@ -299,36 +350,19 @@ async def _create_dstack_request(
         expected_repo_name = f"organic_{task.task_id}"
     
     required_gpus = get_tournament_gpu_requirement(task.task_type, task.model_params_count, task.model_id)
+    runtime = _get_dstack_task_runtime(task.task_type, required_gpus)
+    logger.info(f"Task {task.task_id} is {runtime.label}, using {runtime.gpu_count}x{runtime.gpu_name}")
     
-    if task.task_type == TaskType.IMAGETASK:
-        gpu_name = "H100"
-        gpu_count = _get_gpu_count_from_requirement(required_gpus)
-        logger.info(f"Task {task.task_id} is IMAGETASK, using {gpu_count}x{gpu_name}")
-    else:
-        gpu_name = "H200"
-        gpu_count = _get_h200_count_from_requirement(required_gpus)
-        logger.info(f"Task {task.task_id} is text task (type={task.task_type}), using {gpu_count}x{gpu_name}")
-    
-    timeout_seconds = int(task.hours_to_complete * 3600) + 3600 # Add 1 hour for provisioning/download/upload
+    timeout_seconds = int(task.hours_to_complete * 3600) + 3600  # Add 1 hour for provisioning/download/upload
     
     task_env = {
         "TASK_ID": str(task.task_id),
         "MODEL": get_anonymous_model_dir(task.augmented_model_id or task.model_id),
-        "TASK_TYPE": task.task_type.value if hasattr(task.task_type, 'value') else str(task.task_type),
+        "TASK_TYPE": _task_type_env_value(task.task_type),
         "EXPECTED_REPO_NAME": expected_repo_name,
         "HOURS_TO_COMPLETE": str(task.hours_to_complete),
     }
-    
-    if task.task_type == TaskType.IMAGETASK:
-        task_env["DATASET_ZIP"] = task.training_data
-        task_env["MODEL_TYPE"] = task.model_type
-    else:
-        task_env["DATASET"] = task.training_data
-        dataset_type = _get_dataset_type(task)
-        if dataset_type:
-            dataset_type_dict = dataset_type.model_dump() if hasattr(dataset_type, 'model_dump') else dataset_type.dict()
-            task_env["DATASET_TYPE"] = json.dumps(dataset_type_dict)
-        task_env["FILE_FORMAT"] = "s3"
+    _add_training_data_env(task_env, task)
     
     huggingface_token = os.getenv("HUGGINGFACE_TOKEN")
     huggingface_username = os.getenv("HUGGINGFACE_USERNAME")
@@ -336,18 +370,8 @@ async def _create_dstack_request(
         task_env["HUGGINGFACE_TOKEN"] = huggingface_token
     if huggingface_username:
         task_env["HUGGINGFACE_USERNAME"] = huggingface_username
-        
-    if task.task_type == TaskType.IMAGETASK:
-        docker_image = os.getenv("DSTACK_IMAGE_TASK_DOCKER_IMAGE", "diagonalge/image-winner-single:latest")
-    else:
-        docker_image = os.getenv("DSTACK_TEXT_TASK_DOCKER_IMAGE", "diagonalge/text-winner-single:latest")
     
-    logger.info(f"Using docker image: {docker_image}")
-    
-    if task.task_type == TaskType.IMAGETASK:
-        regions = cst.DSTACK_IMAGE_REGIONS
-    else:
-        regions = cst.DSTACK_TEXT_REGIONS
+    logger.info(f"Using docker image: {runtime.docker_image}")
     
     # Build dstack task configuration
     task_config = {
@@ -357,21 +381,21 @@ async def _create_dstack_request(
                 "configuration": {
                     "type": "task",
                     "name": "organic",
-                    "image": docker_image,
+                    "image": runtime.docker_image,
                     "env": task_env,
                     "resources": {
                         "gpu": {
-                            "name": [gpu_name],
+                            "name": [runtime.gpu_name],
                             "count": {
-                                "min": gpu_count,
-                                "max": gpu_count
+                                "min": runtime.gpu_count,
+                                "max": runtime.gpu_count
                             }
                         },
                         "disk": {
                             "size": "1000GB"
                         }
                     },
-                    "regions": regions,
+                    "regions": runtime.regions,
                     "max_duration": timeout_seconds
                 }
             }
@@ -443,7 +467,7 @@ async def _monitor_dstack_tasks(config: Config):
     - If done, mark as success
     """
     training_tasks = await tournament_sql.get_tournament_training_tasks(config.psql_db, TrainingStatus.TRAINING)
-    organic_tasks = [t for t in training_tasks if t.priority == 1 and t.task.backend is not None and t.task.backend.value == Backend.RUNPOD.value]
+    organic_tasks = [t for t in training_tasks if _is_runpod_organic_training_task(t)]
     
     logger.info(f"Found {len(organic_tasks)} organic tasks currently in training on dstack")
     
@@ -548,4 +572,3 @@ async def run_dstack_orchestrator_cycle():
 if __name__ == "__main__":
     load_dotenv(".vali.env", override=True)
     asyncio.run(run_dstack_orchestrator_cycle())
-

@@ -26,8 +26,9 @@ import tempfile
 import time
 from pathlib import Path
 
+
 _IMAGE_NAME = "pvp-eval:test"
-_DOCKERFILE = "dockerfiles/pvp-eval.dockerfile"
+_DOCKERFILE = "ops/docker/pvp-eval.dockerfile"
 _RESULTS_CONTAINER_PATH = "/app/pvp_results.json"
 
 _BASE_MODEL = "NousResearch/Hermes-3-Llama-3.2-3B"
@@ -89,7 +90,6 @@ def run_container(config: dict, gpu_a: int, gpu_b: int) -> tuple[int, dict | Non
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = Path(tmpdir) / "pvp_eval.json"
         config_path.write_text(json.dumps(config))
-        results_path = Path(tmpdir) / "pvp_results.json"
 
         gpu_devices = f"{gpu_a},{gpu_b}"
         cmd = [

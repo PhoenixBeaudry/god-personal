@@ -195,6 +195,52 @@ class TaskType(str, Enum):
         return hash(str(self))
 
 
+TEXT_TOURNAMENT_TASK_TYPES = (
+    TaskType.INSTRUCTTEXTTASK,
+    TaskType.CHATTASK,
+    TaskType.DPOTASK,
+    TaskType.GRPOTASK,
+)
+TEXT_TRAINER_TASK_TYPES = TEXT_TOURNAMENT_TASK_TYPES + (TaskType.ENVIRONMENTTASK,)
+IMAGE_TASK_TYPES = (TaskType.IMAGETASK,)
+TRAINER_TASK_TYPES = IMAGE_TASK_TYPES + TEXT_TRAINER_TASK_TYPES
+HIGHER_IS_BETTER_TASK_TYPES = (TaskType.GRPOTASK, TaskType.ENVIRONMENTTASK)
+DATASET_TYPE_TASK_TYPES = (
+    (DpoDatasetType, TaskType.DPOTASK),
+    (EnvironmentDatasetType, TaskType.ENVIRONMENTTASK),
+    (InstructTextDatasetType, TaskType.INSTRUCTTEXTTASK),
+    (ChatTemplateDatasetType, TaskType.CHATTASK),
+    (GrpoDatasetType, TaskType.GRPOTASK),
+)
+
+
+def normalize_task_type(task_type: TaskType | str) -> TaskType:
+    return task_type if isinstance(task_type, TaskType) else TaskType(task_type)
+
+
+def task_type_for_dataset_type(dataset_type: TextDatasetType | BaseModel) -> TaskType:
+    for dataset_type_cls, task_type in DATASET_TYPE_TASK_TYPES:
+        if isinstance(dataset_type, dataset_type_cls):
+            return task_type
+    raise ValueError(f"Unsupported dataset_type: {type(dataset_type)}")
+
+
+def uses_text_trainer(task_type: TaskType | str) -> bool:
+    return normalize_task_type(task_type) in TEXT_TRAINER_TASK_TYPES
+
+
+def is_image_task(task_type: TaskType | str) -> bool:
+    return normalize_task_type(task_type) == TaskType.IMAGETASK
+
+
+def is_environment_task(task_type: TaskType | str) -> bool:
+    return normalize_task_type(task_type) == TaskType.ENVIRONMENTTASK
+
+
+def scores_higher_is_better(task_type: TaskType | str) -> bool:
+    return normalize_task_type(task_type) in HIGHER_IS_BETTER_TASK_TYPES
+
+
 class ImageTextPair(BaseModel):
     image_url: str = Field(..., description="Presigned URL for the image file")
     text_url: str = Field(..., description="Presigned URL for the text file")

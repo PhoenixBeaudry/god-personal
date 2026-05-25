@@ -1,23 +1,24 @@
 from datetime import datetime
 from datetime import timezone
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 from core.models.tournament_models import MinerEmissionWeight
 from core.models.tournament_models import TournamentAuditData
 from core.models.tournament_models import TournamentProjection
 from core.models.tournament_models import TournamentType
 from core.models.tournament_models import WeightProjection
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.weight_setting import calculate_emission_boost_from_perf
-from validator.core.weight_setting import calculate_hybrid_decays
-from validator.core.weight_setting import calculate_tournament_weight_with_decay
 from validator.db.sql.tournaments import count_champion_consecutive_wins
 from validator.db.sql.tournaments import get_active_tournament_participants
 from validator.db.sql.tournaments import get_latest_completed_tournament
 from validator.db.sql.tournaments import get_tournament_participants
 from validator.db.sql.tournaments import get_tournament_where_champion_first_won
 from validator.evaluation.tournament_scoring import exponential_decline_mapping
-from validator.tournament.utils import get_real_tournament_winner
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.weight_setting import calculate_emission_boost_from_perf
+from validator.shared.weight_setting import calculate_hybrid_decays
+from validator.shared.weight_setting import calculate_tournament_weight_with_decay
+from validator.tournament.champions import get_real_tournament_winner
+from validator.tournament.weighting import calculate_scaled_tournament_weights
 
 
 def calculate_scaled_weights(
@@ -33,34 +34,19 @@ def calculate_scaled_weights(
                  scaled_environment_tournament_weight, scaled_environment_base_weight,
                  scaled_burn_weight, text_winner_hotkey, image_winner_hotkey, environment_winner_hotkey)
     """
-    participants: list[str] = tournament_audit_data.participants
-    participation_total: float = len(participants) * cts.TOURNAMENT_PARTICIPATION_WEIGHT
-    scale_factor: float = 1.0 - participation_total if participation_total > 0 else 1.0
-
-    scaled_text_tournament_weight: float = tournament_audit_data.text_tournament_weight * scale_factor
-    scaled_image_tournament_weight: float = tournament_audit_data.image_tournament_weight * scale_factor
-    scaled_environment_tournament_weight: float = tournament_audit_data.environment_tournament_weight * scale_factor
-    scaled_burn_weight: float = tournament_audit_data.burn_weight * scale_factor
-
-    scaled_text_base_weight: float = cts.TOURNAMENT_TEXT_WEIGHT * scale_factor
-    scaled_image_base_weight: float = cts.TOURNAMENT_IMAGE_WEIGHT * scale_factor
-    scaled_environment_base_weight: float = cts.TOURNAMENT_ENVIRONMENT_WEIGHT * scale_factor
-
-    text_winner_hotkey = get_real_tournament_winner(tournament_audit_data.text_tournament_data)
-    image_winner_hotkey = get_real_tournament_winner(tournament_audit_data.image_tournament_data)
-    environment_winner_hotkey = get_real_tournament_winner(tournament_audit_data.environment_tournament_data)
+    scaled_weights = calculate_scaled_tournament_weights(tournament_audit_data)
 
     return (
-        scaled_text_tournament_weight,
-        scaled_text_base_weight,
-        scaled_image_tournament_weight,
-        scaled_image_base_weight,
-        scaled_environment_tournament_weight,
-        scaled_environment_base_weight,
-        scaled_burn_weight,
-        text_winner_hotkey,
-        image_winner_hotkey,
-        environment_winner_hotkey,
+        scaled_weights.tournament_weight(TournamentType.TEXT),
+        scaled_weights.base_weight(TournamentType.TEXT),
+        scaled_weights.tournament_weight(TournamentType.IMAGE),
+        scaled_weights.base_weight(TournamentType.IMAGE),
+        scaled_weights.tournament_weight(TournamentType.ENVIRONMENT),
+        scaled_weights.base_weight(TournamentType.ENVIRONMENT),
+        scaled_weights.burn_weight,
+        scaled_weights.winner_hotkey(TournamentType.TEXT),
+        scaled_weights.winner_hotkey(TournamentType.IMAGE),
+        scaled_weights.winner_hotkey(TournamentType.ENVIRONMENT),
     )
 
 
@@ -181,4 +167,3 @@ async def calculate_tournament_projection(
         initial_weight=initial_weight,
         projections=projections,
     )
-

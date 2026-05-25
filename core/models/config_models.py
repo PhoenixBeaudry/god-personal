@@ -12,12 +12,6 @@ class BaseConfig:
 
 
 @dataclass
-class MinerConfig(BaseConfig):
-    min_stake_threshold: str
-    refresh_nodes: bool
-
-
-@dataclass
 class ValidatorConfig(BaseConfig):
     s3_compatible_endpoint: str
     s3_compatible_access_key: str

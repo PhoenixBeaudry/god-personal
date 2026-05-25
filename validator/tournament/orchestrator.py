@@ -1,6 +1,8 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 
 import httpx
 from dotenv import load_dotenv
@@ -10,6 +12,8 @@ from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
 import validator.tournament.constants as cst
+from core.logging import LogContext
+from core.logging import get_logger
 from core.models.payload_models import ModelPrepJob
 from core.models.payload_models import TrainerProxyRequest
 from core.models.payload_models import TrainerTaskLog
@@ -18,32 +22,31 @@ from core.models.payload_models import TrainRequestText
 from core.models.tournament_models import GpuRequirement
 from core.models.tournament_models import TaskTrainingAssignment
 from core.models.tournament_models import TournamentTaskTraining
-from core.models.tournament_models import TournamentType
 from core.models.tournament_models import TrainingRepoInfo
 from core.models.utility_models import Backend
 from core.models.utility_models import FileFormat
 from core.models.utility_models import GPUInfo
 from core.models.utility_models import GPUType
 from core.models.utility_models import TaskStatus
-from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
-from validator.core.config import Config
-from validator.core.config import load_config
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.constants import GET_GPU_AVAILABILITY_ENDPOINT
-from validator.core.constants import PROXY_TRAINING_IMAGE_ENDPOINT
-from validator.core.constants import MODEL_PREP_STATUS_ENDPOINT
-from validator.core.constants import TASK_DETAILS_ENDPOINT
-from validator.core.models import AnyTypeRawTask
+from core.models.utility_models import is_environment_task
+from core.models.utility_models import is_image_task
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.db.sql.tournaments import get_tournament_id_by_task_id
 from validator.evaluation.scoring import _get_dataset_type
 from validator.evaluation.scoring import should_use_pvp
-from validator.tournament.utils import get_tournament_gpu_requirement
-from validator.utils.logging import LogContext
-from validator.utils.logging import get_logger
-from validator.utils.util import try_db_connections
+from validator.shared.config import Config
+from validator.shared.config import load_config
+from validator.shared.connections import try_db_connections
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.constants import GET_GPU_AVAILABILITY_ENDPOINT
+from validator.shared.constants import MODEL_PREP_STATUS_ENDPOINT
+from validator.shared.constants import PROXY_TRAINING_IMAGE_ENDPOINT
+from validator.shared.constants import TASK_DETAILS_ENDPOINT
+from validator.shared.models import AnyTypeRawTask
+from validator.tournament.resources import get_tournament_gpu_requirement
+from validator.tournament.specs import get_tournament_type_for_task_type
 
 
 logger = get_logger(__name__)
@@ -198,7 +201,7 @@ async def _fetch_tournament_tasks_ready_to_train(config: Config):
     pending_text_count = 0
     pending_image_count = 0
     for training_task in pending_training_tasks:
-        if training_task.task.task_type == TaskType.IMAGETASK:
+        if is_image_task(training_task.task.task_type):
             pending_image_count += 1
         else:
             pending_text_count += 1
@@ -220,7 +223,7 @@ async def _fetch_tournament_tasks_ready_to_train(config: Config):
     image_tasks_to_process = []
 
     for task in all_tournament_tasks:
-        if task.task_type == TaskType.IMAGETASK:
+        if is_image_task(task.task_type):
             if pending_image_count < cst.PENDING_QUEUE_THRESHOLD_PER_TYPE:
                 image_tasks_to_process.append(task)
         else:
@@ -302,13 +305,9 @@ async def _process_tasks_for_training(tasks: list[AnyTypeRawTask], config: Confi
         elif priority == 1:
             # Priority 1: Organic (non-tournament, non-benchmark) tasks
             # Use EMISSION_BURN_HOTKEY and get last tournament winner's repo
-            if task.task_type in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK, TaskType.CHATTASK]:
-                tournament_type = TournamentType.TEXT
-            elif task.task_type == TaskType.IMAGETASK:
-                tournament_type = TournamentType.IMAGE
-            elif task.task_type == TaskType.ENVIRONMENTTASK:
-                tournament_type = TournamentType.ENVIRONMENT
-            else:
+            try:
+                tournament_type = get_tournament_type_for_task_type(task.task_type)
+            except ValueError:
                 tournament_type = None
 
             # Get the last completed tournament winner's repo
@@ -641,7 +640,7 @@ async def _create_training_request(
     starting_model = await task_sql.get_starting_model_repo(str(task.task_id), hotkey, config.psql_db)
     training_model = starting_model or task.augmented_model_id or task.model_id
 
-    if task.task_type == TaskType.IMAGETASK:
+    if is_image_task(task.task_type):
         training_data = TrainRequestImage(
             model=training_model,
             task_id=str(task.task_id),
@@ -1072,14 +1071,14 @@ async def process_awaiting_model_prep_tasks(config: Config):
     """
     # Deferred imports to avoid circular dependency
     # (model_prep imports _check_suitable_gpus from this module)
-    from validator.utils.model_prep import dispatch_augmentation_and_stats
-    from validator.tournament.utils import get_tournament_gpu_requirement
+    from validator.tasks.model_prep import dispatch_augmentation_and_stats
+    from validator.tournament.resources import get_tournament_gpu_requirement
 
     async def _run_model_prep(task, trainer_ip, gpu_ids):
         task_id_str = str(task.task_id)
         try:
             reward_fns = getattr(task, "reward_functions", None)
-            is_env_task = task.task_type == TaskType.ENVIRONMENTTASK
+            is_env_task = is_environment_task(task.task_type)
 
             prep_result = await dispatch_augmentation_and_stats(
                 task_id=task_id_str,

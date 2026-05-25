@@ -3,9 +3,9 @@ import re
 from uuid import UUID
 
 import validator.db.constants as cst
-from validator.core.models import RewardFunction
+from core.logging import get_logger
 from validator.db.database import PSQLDB
-from validator.utils.logging import get_logger
+from validator.shared.models import RewardFunction
 
 
 logger = get_logger(__name__)

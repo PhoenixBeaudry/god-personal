@@ -21,6 +21,7 @@ import os
 import sys
 from pathlib import Path
 
+from core.logging import get_logger
 from core.models.tournament_models import RoundStatus
 from core.models.tournament_models import TournamentStatus
 from validator.db.database import PSQLDB
@@ -29,7 +30,6 @@ from validator.db.sql.tournaments import get_tournament_rounds
 from validator.db.sql.tournaments import get_tournament_tasks
 from validator.db.sql.tournaments import update_round_status
 from validator.db.sql.tournaments import update_tournament_status
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)

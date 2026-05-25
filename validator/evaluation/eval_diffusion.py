@@ -1,8 +1,7 @@
 import json
 import os
-import re
 import random
-import shutil
+import re
 import tempfile
 import urllib.request
 import zipfile
@@ -16,16 +15,16 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 
 from core.models.utility_models import ImageModelType
-from validator.core import constants as cst
-from validator.core.models import Img2ImgPayload
-from validator.evaluation.utils import adjust_image_size
-from validator.evaluation.utils import base64_to_image
-from validator.evaluation.utils import download_from_huggingface
-from validator.evaluation.utils import image_to_base64
-from validator.evaluation.utils import list_supported_images
-from validator.evaluation.utils import read_prompt_file
-from validator.utils import comfy_api_gate as api_gate
-from validator.utils.retry_utils import retry_on_5xx
+from validator.evaluation.image_io import adjust_image_size
+from validator.evaluation.image_io import base64_to_image
+from validator.evaluation.image_io import download_from_huggingface
+from validator.evaluation.image_io import image_to_base64
+from validator.evaluation.image_io import list_supported_images
+from validator.evaluation.image_io import read_prompt_file
+from validator.infrastructure import comfy_gateway as api_gate
+from validator.infrastructure.retries import retry_on_5xx
+from validator.shared import constants as cst
+from validator.shared.models import Img2ImgPayload
 
 
 logger = get_logger(__name__)

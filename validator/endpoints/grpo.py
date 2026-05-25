@@ -4,17 +4,17 @@ from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
 
+from core.logging import get_logger
 from core.models.payload_models import AddRewardFunctionRequest
 from core.models.payload_models import RewardFunctionInfo
 from core.models.payload_models import RewardFunctionsResponse
-from validator.core.config import Config
-from validator.core.dependencies import get_api_key
-from validator.core.dependencies import get_config
 from validator.db.sql import grpo as grpo_sql
-from validator.utils.logging import get_logger
-from validator.utils.reward_functions import extract_docstring
-from validator.utils.reward_functions import extract_function_name
-from validator.utils.reward_functions import process_reward_function_code
+from validator.shared.config import Config
+from validator.shared.dependencies import get_api_key
+from validator.shared.dependencies import get_config
+from validator.tasks.reward_functions import extract_docstring
+from validator.tasks.reward_functions import extract_function_name
+from validator.tasks.reward_functions import process_reward_function_code
 
 
 logger = get_logger(__name__)
@@ -64,7 +64,10 @@ async def add_reward_function(
         code_to_store = process_reward_function_code(request.code)
         
         logger.error(f"ENDPOINT DEBUG: Processed code length: {len(code_to_store)}")
-        logger.error(f"ENDPOINT DEBUG: Processed code contains 'def restricted_execution': {'def restricted_execution' in code_to_store}")
+        logger.error(
+            "ENDPOINT DEBUG: Processed code contains "
+            f"'def restricted_execution': {'def restricted_execution' in code_to_store}"
+        )
 
         reward_id = await grpo_sql.add_reward_function(
             config.psql_db,

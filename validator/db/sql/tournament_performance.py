@@ -5,6 +5,8 @@ from validator.db.database import PSQLDB
 
 
 async def get_boss_round_winner_task_pairs(tournament_id: str, psql_db: PSQLDB) -> list[BossRoundTaskPair]:
+    """Fetch legacy boss-round sync pairs retained for API/DB compatibility."""
+
     async with await psql_db.connection() as connection:
         query = """
             SELECT t.task_id, t.task_type, tourn.winner_hotkey, brst.general_task_id

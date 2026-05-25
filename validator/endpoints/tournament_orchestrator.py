@@ -4,13 +4,13 @@ from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import Response
 
+from core.logging import get_logger
 from core.models.utility_models import TrainerInfo
-from validator.core.config import Config
-from validator.core.dependencies import get_api_key
-from validator.core.dependencies import get_config
 from validator.db.sql import tournaments as tournament_sql
+from validator.shared.config import Config
+from validator.shared.dependencies import get_api_key
+from validator.shared.dependencies import get_config
 from validator.tournament.orchestrator import fetch_trainer_gpus
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)

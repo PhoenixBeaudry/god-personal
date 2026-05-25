@@ -4,7 +4,10 @@ from datetime import timedelta
 from datetime import timezone
 
 import validator.db.constants as cst
-from core.models.pvp_models import PvPEnvironmentResult, PvPPairDbRow, PvPPairResult
+from core.logging import get_logger
+from core.models.pvp_models import PvPEnvironmentResult
+from core.models.pvp_models import PvPPairDbRow
+from core.models.pvp_models import PvPPairResult
 from core.models.tournament_models import GroupRound
 from core.models.tournament_models import HotkeyTaskParticipation
 from core.models.tournament_models import TaskTrainingAssignment
@@ -19,18 +22,17 @@ from core.models.tournament_models import TournamentStatus
 from core.models.tournament_models import TournamentTask
 from core.models.tournament_models import TournamentTaskScore
 from core.models.tournament_models import TournamentTaskTraining
-from core.models.tournament_models import TrainingRepoInfo
 from core.models.tournament_models import TournamentType
+from core.models.tournament_models import TrainingRepoInfo
 from core.models.utility_models import GPUInfo
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainerInfo
 from core.models.utility_models import TrainingStatus
 from validator.db.database import PSQLDB
 from validator.db.sql import tasks as task_sql
+from validator.db.sql.normalization import normalise_float
 from validator.db.sql.submissions_and_scoring import get_all_scores_and_losses_for_task
 from validator.db.sql.submissions_and_scoring import get_task_winners
-from validator.utils.logging import get_logger
-from validator.utils.util import normalise_float
 
 
 logger = get_logger(__name__)
@@ -70,7 +72,7 @@ def is_champion_winner(winner_hotkey: str | None, base_winner_hotkey: str | None
     Returns:
         True if champion_hotkey won the tournament
     """
-    from validator.core.constants import EMISSION_BURN_HOTKEY
+    from validator.shared.constants import EMISSION_BURN_HOTKEY
 
     if not winner_hotkey:
         return False
@@ -567,7 +569,15 @@ async def update_tournament_participant_training_repo(
                 {cst.GITHUB_TOKEN} = $3, {cst.REQUESTED_DATASETS} = $4
             WHERE {cst.TOURNAMENT_ID} = $5 AND {cst.HOTKEY} = $6
         """
-        await connection.execute(query, training_repo, training_commit_hash, github_token, json.dumps(requested_datasets) if requested_datasets else None, tournament_id, hotkey)
+        await connection.execute(
+            query,
+            training_repo,
+            training_commit_hash,
+            github_token,
+            json.dumps(requested_datasets) if requested_datasets else None,
+            tournament_id,
+            hotkey,
+        )
         logger.info(f"Updated training repo for participant {hotkey} in tournament {tournament_id}")
 
 
@@ -730,7 +740,10 @@ async def add_tournament_task_hotkey_pairs_for_training(assignments: list[TaskTr
                 ({cst.TASK_ID}, {cst.HOTKEY}, {cst.CREATED_AT}, {cst.PRIORITY},
                  {cst.TRAINING_REPO}, {cst.TRAINING_COMMIT_HASH}, {cst.GITHUB_TOKEN},
                  {cst.REQUESTED_DATASETS})
-                SELECT * FROM unnest($1::uuid[], $2::text[], $3::timestamptz[], $4::integer[], $5::text[], $6::text[], $7::text[], $8::jsonb[])
+                SELECT * FROM unnest(
+                    $1::uuid[], $2::text[], $3::timestamptz[], $4::integer[],
+                    $5::text[], $6::text[], $7::text[], $8::jsonb[]
+                )
                 ON CONFLICT ({cst.TASK_ID}, {cst.HOTKEY}) DO NOTHING
             """
 

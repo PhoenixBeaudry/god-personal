@@ -23,8 +23,8 @@ from llava.mm_utils import get_model_name_from_path
 from minio import Minio
 from PIL import Image
 
+import validator.infrastructure.comfy_gateway as api_gate
 import validator.tasks.image_synth.constants as cst
-import validator.utils.comfy_api_gate as api_gate
 
 
 COMFY_MAIN_PATH = "/app/validator/tasks/image_synth/ComfyUI/main.py"
@@ -155,11 +155,12 @@ def run_person_generation(num_prompts: int, save_dir: str) -> list[dict[str, str
     face_image.save(cst.FACE_IMAGE_PATH)
 
     person_prompt = f"""
-        Here is an image of a person named 'person_name'. Generate {num_prompts} different prompts for creating an avatar of the person - make sure their name is listed in the prompt.
+        Here is an image of a person named 'person_name'. Generate {num_prompts} different prompts
+        for creating an avatar of the person - make sure their name is listed in the prompt.
         Place them in different places, backgrounds, scenarios, and emotions.
         Use different settings like beach, house, room, park, office, city, and others.
         Also use a different range of emotions like happy, sad, smiling, laughing, angry, thinking for every prompt.
-        Here are a few examples of the prompts to get you started, getting inspiration from these, you can try to create more for 'person_name': 
+        Here are a few examples to get started. Use these as inspiration to create more for 'person_name':
         {cst.PROMPT_EXAMPLES}
         """.replace("'person_name'", gen_name())
 

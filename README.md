@@ -1,62 +1,54 @@
-<h1 align="center">G.O.D Subnet</h1>
+# G.O.D Subnet
 
-🚀 Welcome to the [Gradients on Demand](https://gradients.io) Subnet
+G.O.D, Gradients on Demand, is the validator and trainer system behind Gradients.io tournaments on Bittensor subnet 56. The repo runs three tournament families:
 
-> Distributed intelligence for LLM and diffusion model training. Where the world's best AutoML minds compete.
+- Text tournaments for instruct, chat, DPO, and GRPO training.
+- Image tournaments for diffusion LoRA training.
+- Environment tournaments for GRPO-style training against live game environments.
 
-**Tournaments** 🏆
-Competitive events where the validator executes miners' open-source training scripts on dedicated infrastructure.
+The current production surface is the validator, trainer, tournament orchestration, scoring, auditing, and local evaluation tooling. Miners participate through an external repository endpoint contract; the repo does not need to be used as a miner runtime.
 
-- **Duration**: 4-7 days per tournament
-- **Frequency**: New tournaments start 72 hours after the previous one ends
-- **Rewards**: Exponentially higher weight potential for top performers
-- **Open Source**: Winning AutoML scripts are released when tournaments complete
-- **Winners Repository**: First place tournament scripts is uploaded to [github.com/gradients-opensource](https://github.com/gradients-opensource) 🤙
-- [Tournament Overview](docs/tournament_overview.md)
+## Start Here
 
-## Setup Guides
+The single primary guide is [docs/guide.md](docs/guide.md). It covers:
 
-- [Tournament Miner Guide](docs/tourn_miner.md)
-- [Validator Setup Guide](docs/validator_setup.md)
+- Validator and trainer setup.
+- Tournament lifecycle and scoring.
+- Miner participation requirements.
+- Required training repository layout, CLI arguments, environment variables, and outputs.
+- Local evaluation commands.
 
-## Developer Resources
+Coding agents should also read [AGENTS.md](AGENTS.md) before making structural changes.
 
-For technical documentation on GRPO reward functions and implementation details, see [GRPO Safe Code Execution Guide](docs/grpo_rewards_code_execution.md).
-
-## Recommended Compute Requirements
-
-[Compute Requirements](docs/compute.md)
-
-## Miner Advice
-
-[Miner Advice](docs/tourn_miner.md)
-
-## Running evaluations on your own
-
-You can re-evaluate existing tasks on your own machine. Or you can run non-submitted models to check if they are good.
-This works for tasks not older than 7 days.
-
-Make sure to build the latest docker images before running the evaluation.
+## Common Commands
 
 ```bash
-docker build -f dockerfiles/validator.dockerfile -t weightswandering/tuning_vali:latest .
-docker build -f dockerfiles/validator-diffusion.dockerfile -t diagonalge/tuning_validator_diffusion:latest .
+task config          # create .vali.env for a validator
+task trainer-config  # create .trainer.env for a trainer
+task validator       # run validator services
+task trainer         # run a trainer service
 ```
 
-To see the available options, run:
+Run a local evaluation:
 
 ```bash
-python -m utils.run_evaluation --help
+python ops/validator_ops/run_evaluation.py --help
+python ops/validator_ops/run_evaluation.py --task_id <task_id>
+python ops/validator_ops/run_evaluation.py --task_id <task_id> --models <model_repo>
 ```
 
-To re-evaluate a task, run:
+## Repository Map
 
-```bash
-python -m utils.run_evaluation --task_id <task_id>
-```
+- `core/` - shared models, constants, logging, dataset helpers, training templates, and compatibility contracts.
+- `validator/` - validator API, tournament orchestration, task creation, evaluation, scoring, infrastructure adapters, shared validator models, and weight setting.
+- `trainer/` - trainer API, GPU job tracking, model prep, runtime helpers, and Docker training/sidecar entrypoints.
+- `ops/` - operational assets: Dockerfiles, compose stacks, observability config, auditor scripts, local examples, and one-off tools.
+- `tests/` - source-aligned tests for core, trainer, validator DB, tasks, lifecycle, evaluation, and tournaments.
+- `docs/guide.md` - the canonical docs.
 
-To run a non-submitted model, run:
+## Public Resources
 
-```bash
-python -m utils.run_evaluation --task_id <task_id> --models <model_name>
-```
+- Product: [gradients.io](https://gradients.io)
+- API docs: [api.gradients.io/docs](https://api.gradients.io/docs)
+- Tournament results: `https://gradients.io/app/research/tournament/{TOURNAMENT_ID}`
+- Winner repositories: [github.com/gradients-opensource](https://github.com/gradients-opensource)

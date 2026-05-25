@@ -2,23 +2,26 @@ import random
 
 from core.constants import EnvironmentName
 from core.constants import TrainingStartPoint
+from core.logging import get_logger
 from core.models.tournament_models import GroupRound
-from core.models.tournament_models import TournamentType
 from core.models.tournament_models import KnockoutRound
 from core.models.tournament_models import Round
 from core.models.tournament_models import TournamentTask
+from core.models.tournament_models import TournamentType
 from core.models.utility_models import ImageModelType
 from core.models.utility_models import TaskType
-from validator.core.config import Config
-from validator.core.constants import PERCENTAGE_OF_TASKS_THAT_SHOULD_BE_DPO
-from validator.core.constants import PERCENTAGE_OF_TASKS_THAT_SHOULD_BE_GRPO
-from validator.core.constants import PERCENTAGE_OF_TASKS_THAT_SHOULD_BE_INSTRUCT_TEXT
-from validator.core.models import RawTask
+from core.models.utility_models import is_environment_task
+from core.models.utility_models import is_image_task
 from validator.db.sql import tasks as task_sql
 from validator.db.sql.tournaments import add_tournament_tasks
 from validator.db.sql.tournaments import get_latest_completed_tournament
 from validator.db.sql.tournaments import get_tournament_rounds
 from validator.db.sql.tournaments import get_tournament_tasks
+from validator.shared.config import Config
+from validator.shared.constants import PERCENTAGE_OF_TASKS_THAT_SHOULD_BE_DPO
+from validator.shared.constants import PERCENTAGE_OF_TASKS_THAT_SHOULD_BE_GRPO
+from validator.shared.constants import PERCENTAGE_OF_TASKS_THAT_SHOULD_BE_INSTRUCT_TEXT
+from validator.shared.models import RawTask
 from validator.tasks.diffusion_synth import create_synthetic_image_task
 from validator.tasks.synthetic_scheduler import _get_dpo_datasets
 from validator.tasks.synthetic_scheduler import _get_image_models
@@ -29,11 +32,11 @@ from validator.tasks.synthetic_scheduler import create_synthetic_env_task
 from validator.tasks.synthetic_scheduler import create_synthetic_grpo_task
 from validator.tasks.synthetic_scheduler import create_synthetic_instruct_text_task
 from validator.tournament import constants as t_cst
-from validator.tournament.utils import get_tournament_gpu_requirement
-from validator.utils.logging import get_logger
+from validator.tournament.resources import get_tournament_gpu_requirement
 
 
 logger = get_logger(__name__)
+FINAL_TEXT_TASK_TYPES = (TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK)
 
 
 async def create_text_tournament_tasks(
@@ -48,7 +51,7 @@ async def create_text_tournament_tasks(
         logger.info(f"Creating text tournament for {num_groups} groups (1 task per group)")
         tasks = await _create_group_text_tasks(round_data, tournament_id, config, is_final_round)
     elif is_final_round:
-        task_types = [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK]
+        task_types = FINAL_TEXT_TASK_TYPES
         tasks_per_type = t_cst.FINAL_ROUND_TEXT_TASKS // len(task_types)
         logger.info(f"Creating final text tournament with new synthetic tasks ({tasks_per_type} of each: instruct, DPO, GRPO)")
         tasks = await _create_new_text_boss_round_tasks(tournament_id, round_id, config)
@@ -158,7 +161,10 @@ async def _create_environment_boss_round_tasks(
 
     for i in range(len(tasks), t_cst.ENV_FINAL_ROUND_TASK_COUNT):
         model_override, start_point, hours = boss_task_configs[i]
-        logger.info(f"Boss round task {i+1}/{t_cst.ENV_FINAL_ROUND_TASK_COUNT}: start_point={start_point.value}, model={model_override}, hours={hours}")
+        logger.info(
+            f"Boss round task {i + 1}/{t_cst.ENV_FINAL_ROUND_TASK_COUNT}: "
+            f"start_point={start_point.value}, model={model_override}, hours={hours}"
+        )
         task = await create_synthetic_env_task(
             config, models, instruct_datasets,
             num_environments=num_envs, round_number=round_data.round_number,
@@ -327,7 +333,7 @@ async def _create_task_by_type(
     task_type: TaskType, config: Config, models: list, instruct_datasets: list, dpo_datasets: list
 ) -> RawTask:
     """Create a synthetic task of the specified type."""
-    if task_type == TaskType.IMAGETASK:
+    if is_image_task(task_type):
         return await create_synthetic_image_task(config, models)
     elif task_type == TaskType.INSTRUCTTEXTTASK:
         return await create_synthetic_instruct_text_task(config, models, instruct_datasets)
@@ -335,7 +341,7 @@ async def _create_task_by_type(
         return await create_synthetic_dpo_task(config, models, dpo_datasets)
     elif task_type == TaskType.GRPOTASK:
         return await create_synthetic_grpo_task(config, models, instruct_datasets)
-    elif task_type == TaskType.ENVIRONMENTTASK:
+    elif is_environment_task(task_type):
         return await create_synthetic_env_task(config, models, instruct_datasets)
     else:
         # Default to instruct text task
@@ -383,7 +389,7 @@ async def _create_and_register_tournament_task(
     gpu_req = get_tournament_gpu_requirement(task.task_type, task.model_params_count, task.model_id)
 
     # Format log message based on task type
-    if task.task_type == TaskType.IMAGETASK:
+    if is_image_task(task.task_type):
         logger.info(f"Image: {task.task_id} - Model: {task.model_id} - GPU: {gpu_req}")
     else:
         dataset_info = f" - Dataset: {task.ds}" if hasattr(task, 'ds') and task.ds else ""
@@ -505,7 +511,7 @@ async def _create_single_probability_task(
 
 
 async def create_new_task_of_same_type(task: RawTask, config: Config) -> RawTask:
-    if task.task_type == TaskType.IMAGETASK:
+    if is_image_task(task.task_type):
         models = _get_image_models(config.keypair)
         return await _create_task_by_type(task.task_type, config, models, [], [])
 
@@ -570,7 +576,7 @@ async def _create_new_text_boss_round_tasks(tournament_id: str, round_id: str, c
 
     logger.info("Creating boss round text tasks using new synthetic tasks")
 
-    task_types = [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK]
+    task_types = FINAL_TEXT_TASK_TYPES
     tasks_per_type = t_cst.FINAL_ROUND_TEXT_TASKS // len(task_types)
 
     standard_models = _get_text_models(config.keypair)
@@ -624,7 +630,7 @@ async def _create_single_new_text_task(
 ) -> RawTask | None:
     """Create a single new synthetic text task of a specific type."""
     try:
-        if task_type not in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK, TaskType.GRPOTASK, TaskType.ENVIRONMENTTASK]:
+        if task_type not in FINAL_TEXT_TASK_TYPES + (TaskType.ENVIRONMENTTASK,):
             logger.error(f"Unknown task type {task_type} for boss round text task")
             return None
 

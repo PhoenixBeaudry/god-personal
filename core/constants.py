@@ -105,12 +105,11 @@ ENVIRONMENT_CONFIGS: dict[EnvironmentName, EnvironmentConfig] = {
 CONTAINER_EVAL_RESULTS_PATH = "/aplp/evaluation_results.json"
 LORA_ADAPTER_CONFIG_FILE = "adapter_config.json"
 
-CONFIG_DIR = "core/config/"
-OUTPUT_DIR = "core/outputs/"
+CONFIG_DIR = "core/training_templates/"
 CACHE_DIR = "~/.cache/huggingface"
 CACHE_DIR_HUB = os.path.expanduser("~/.cache/huggingface/hub")
 GRPO_MINER_OUTPUT_DIR = "/root/.cache/huggingface/hub/trained_repo"
-DIFFUSION_DATASET_DIR = "core/dataset/images"
+DIFFUSION_DATASET_DIR = "core/datasets/images"
 
 DIFFUSION_SDXL_REPEATS = 10
 DIFFUSION_FLUX_REPEATS = 1

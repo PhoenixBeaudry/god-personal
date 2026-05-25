@@ -1,14 +1,14 @@
 from typing import List
 
+from core.logging import get_logger
 from core.models.tournament_models import TournamentParticipant
-from core.models.tournament_models import TournamentType
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
-from validator.core.config import Config
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.db.sql.nodes import get_node_by_hotkey
-from validator.utils.logging import get_logger
+from validator.shared.config import Config
+from validator.tournament.specs import get_tournament_spec
 
 
 logger = get_logger(__name__)
@@ -112,27 +112,9 @@ async def create_benchmark_tasks_for_tournament_winner(tournament_id: str, winne
 
         all_created_task_ids = []
 
-        if tournament.tournament_type == TournamentType.TEXT:
-            task_types = [
-                TaskType.INSTRUCTTEXTTASK,
-                TaskType.CHATTASK,
-                TaskType.DPOTASK,
-                TaskType.GRPOTASK,
-            ]
-            logger.info(f"Creating text benchmark tasks for {tournament.tournament_type.value} tournament")
-        elif tournament.tournament_type == TournamentType.IMAGE:
-            task_types = [
-                TaskType.IMAGETASK,
-            ]
-            logger.info(f"Creating image benchmark tasks for {tournament.tournament_type.value} tournament")
-        elif tournament.tournament_type == TournamentType.ENVIRONMENT:
-            task_types = [
-                TaskType.ENVIRONMENTTASK,
-            ]
-            logger.info(f"Creating environment benchmark tasks for {tournament.tournament_type.value} tournament")
-        else:
-            logger.error(f"Unknown tournament type: {tournament.tournament_type.value}")
-            return []
+        tournament_spec = get_tournament_spec(tournament.tournament_type)
+        task_types = tournament_spec.benchmark_task_types
+        logger.info(f"Creating {tournament.tournament_type.value} benchmark tasks")
 
         for task_type in task_types:
             try:

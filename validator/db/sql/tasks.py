@@ -7,32 +7,107 @@ from fiber.chain.models import Node
 
 import validator.db.constants as cst
 from core.constants import NETUID
+from core.logging import get_logger
+from core.models.network_models import DetailedNetworkStats
+from core.models.network_models import NetworkStats
 from core.models.utility_models import ImageTextPair
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
-from validator.core.models import AnyTypeRawTask
-from validator.core.models import AnyTypeTask
-from validator.core.models import ChatRawTask
-from validator.core.models import ChatTask
-from validator.core.models import DetailedNetworkStats
-from validator.core.models import DpoRawTask
-from validator.core.models import DpoTask
-from validator.core.models import GrpoRawTask
-from validator.core.models import GrpoTask
-from validator.core.models import EnvTask
-from validator.core.models import EnvRawTask
-from validator.core.models import ImageRawTask
-from validator.core.models import ImageTask
-from validator.core.models import InstructTextRawTask
-from validator.core.models import InstructTextTask
-from validator.core.models import NetworkStats
-from validator.core.models import RewardFunction
+from core.models.utility_models import normalize_task_type
 from validator.db.database import PSQLDB
-from validator.utils.logging import get_logger
-from validator.utils.minio import async_minio_client
+from validator.infrastructure.minio_client import async_minio_client
+from validator.shared.models import AnyTypeRawTask
+from validator.shared.models import AnyTypeTask
+from validator.shared.models import ChatRawTask
+from validator.shared.models import ChatTask
+from validator.shared.models import DpoRawTask
+from validator.shared.models import DpoTask
+from validator.shared.models import EnvRawTask
+from validator.shared.models import EnvTask
+from validator.shared.models import GrpoRawTask
+from validator.shared.models import GrpoTask
+from validator.shared.models import ImageRawTask
+from validator.shared.models import ImageTask
+from validator.shared.models import InstructTextRawTask
+from validator.shared.models import InstructTextTask
+from validator.shared.models import RewardFunction
 
 
 logger = get_logger(__name__)
+_RAW_TASK_MODEL_BY_TYPE = {
+    TaskType.INSTRUCTTEXTTASK: InstructTextRawTask,
+    TaskType.CHATTASK: ChatRawTask,
+    TaskType.IMAGETASK: ImageRawTask,
+    TaskType.DPOTASK: DpoRawTask,
+    TaskType.GRPOTASK: GrpoRawTask,
+    TaskType.ENVIRONMENTTASK: EnvRawTask,
+}
+_TASK_MODEL_BY_TYPE = {
+    TaskType.INSTRUCTTEXTTASK: InstructTextTask,
+    TaskType.CHATTASK: ChatTask,
+    TaskType.IMAGETASK: ImageTask,
+    TaskType.DPOTASK: DpoTask,
+    TaskType.GRPOTASK: GrpoTask,
+    TaskType.ENVIRONMENTTASK: EnvTask,
+}
+_TASK_SPECIFIC_UPDATE_TABLE_BY_TYPE = {
+    TaskType.INSTRUCTTEXTTASK: cst.INSTRUCT_TEXT_TASKS_TABLE,
+    TaskType.CHATTASK: cst.CHAT_TASKS_TABLE,
+    TaskType.DPOTASK: cst.DPO_TASKS_TABLE,
+    TaskType.GRPOTASK: cst.GRPO_TASKS_TABLE,
+    TaskType.ENVIRONMENTTASK: cst.ENV_TASKS_TABLE,
+}
+
+
+async def _build_task_from_data(
+    task_type: TaskType | str,
+    task_data: dict,
+    task_id: UUID,
+    psql_db: PSQLDB,
+    connection: Connection | None = None,
+    *,
+    public: bool = False,
+) -> AnyTypeTask | AnyTypeRawTask | None:
+    normalized_task_type = normalize_task_type(task_type)
+    model_by_type = _TASK_MODEL_BY_TYPE if public else _RAW_TASK_MODEL_BY_TYPE
+    task_model = model_by_type.get(normalized_task_type)
+    if task_model is None:
+        return None
+
+    full_task_data = dict(task_data)
+    if normalized_task_type == TaskType.IMAGETASK:
+        image_text_pairs = await get_image_text_pairs(task_id, psql_db, connection)
+        return task_model(**full_task_data, image_text_pairs=image_text_pairs)
+    if normalized_task_type == TaskType.GRPOTASK:
+        reward_functions = await get_reward_functions(task_id, psql_db, connection)
+        return task_model(**full_task_data, reward_functions=reward_functions)
+    return task_model(**full_task_data)
+
+
+async def _get_specific_task_updates(table_name: str, updates: dict, connection: Connection) -> dict:
+    table_fields = await get_table_fields(table_name, connection)
+    specific_fields = [field for field in table_fields if field != cst.TASK_ID]
+    return {key: value for key, value in updates.items() if key in specific_fields}
+
+
+async def _update_task_specific_fields(
+    connection: Connection,
+    task_id: UUID,
+    table_name: str,
+    updates: dict,
+) -> None:
+    specific_updates = await _get_specific_task_updates(table_name, updates, connection)
+    if not specific_updates:
+        return
+
+    specific_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(specific_updates.keys())])
+    specific_values = list(specific_updates.values())
+    query = f"""
+        UPDATE {table_name}
+        SET {specific_clause}
+        WHERE {cst.TASK_ID} = $1
+    """
+    await connection.execute(query, task_id, *specific_values)
 
 
 async def add_task(task: AnyTypeRawTask, psql_db: PSQLDB) -> AnyTypeRawTask:
@@ -395,21 +470,9 @@ async def get_tasks_with_status(
 
             specific_row = await connection.fetchrow(specific_query, row[cst.TASK_ID])
             if specific_row:
-                task_data = dict(specific_row)
-                if task_type == TaskType.INSTRUCTTEXTTASK.value:
-                    tasks.append(InstructTextRawTask(**task_data))
-                elif task_type == TaskType.IMAGETASK.value:
-                    image_text_pairs = await get_image_text_pairs(row[cst.TASK_ID], psql_db)
-                    tasks.append(ImageRawTask(**task_data, image_text_pairs=image_text_pairs))
-                elif task_type == TaskType.DPOTASK.value:
-                    tasks.append(DpoRawTask(**task_data))
-                elif task_type == TaskType.GRPOTASK.value:
-                    reward_functions = await get_reward_functions(row[cst.TASK_ID], psql_db)
-                    tasks.append(GrpoRawTask(**task_data, reward_functions=reward_functions))
-                elif task_type == TaskType.CHATTASK.value:
-                    tasks.append(ChatRawTask(**task_data))
-                elif task_type == TaskType.ENVIRONMENTTASK.value:
-                    tasks.append(EnvRawTask(**task_data))
+                task = await _build_task_from_data(task_type, specific_row, row[cst.TASK_ID], psql_db, connection)
+                if task:
+                    tasks.append(task)
 
         logger.info(f"Retrieved {len(tasks)} tasks with status {status.value}")
         return tasks
@@ -520,84 +583,22 @@ async def update_task(updated_task: AnyTypeRawTask, psql_db: PSQLDB) -> AnyTypeR
                 """
                 await connection.execute(query, updated_task.task_id)
 
-            if updated_task.task_type == TaskType.INSTRUCTTEXTTASK:
-                instruct_text_fields = await get_table_fields(cst.INSTRUCT_TEXT_TASKS_TABLE, connection)
-                instruct_text_specific_fields = [f for f in instruct_text_fields if f != cst.TASK_ID]
-                specific_updates = {k: v for k, v in updates.items() if k in instruct_text_specific_fields}
-                if specific_updates:
-                    specific_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(specific_updates.keys())])
-                    specific_values = list(specific_updates.values())
-                    query = f"""
-                        UPDATE {cst.INSTRUCT_TEXT_TASKS_TABLE}
-                        SET {specific_clause}
-                        WHERE {cst.TASK_ID} = $1
-                    """
-                    await connection.execute(query, updated_task.task_id, *specific_values)
+            task_type = normalize_task_type(updated_task.task_type)
+            specific_table = _TASK_SPECIFIC_UPDATE_TABLE_BY_TYPE.get(task_type)
+            if specific_table is not None:
+                await _update_task_specific_fields(connection, updated_task.task_id, specific_table, updates)
 
-            if updated_task.task_type == TaskType.CHATTASK:
-                chat_task_fields = await get_table_fields(cst.CHAT_TASKS_TABLE, connection)
-                chat_specific_fields = [f for f in chat_task_fields if f != cst.TASK_ID]
-                specific_updates = {k: v for k, v in updates.items() if k in chat_specific_fields}
-                if specific_updates:
-                    specific_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(specific_updates.keys())])
-                    specific_values = list(specific_updates.values())
-                    query = f"""
-                        UPDATE {cst.CHAT_TASKS_TABLE}
-                        SET {specific_clause}
-                        WHERE {cst.TASK_ID} = $1
-                    """
-                    await connection.execute(query, updated_task.task_id, *specific_values)
-
-            elif updated_task.task_type == TaskType.IMAGETASK:
+            if task_type == TaskType.IMAGETASK:
                 if "image_text_pairs" in updates:
                     await delete_image_text_pairs(updated_task.task_id, psql_db)
                     pairs = [ImageTextPair(**pair) for pair in updates["image_text_pairs"]]
                     await add_image_text_pairs(updated_task.task_id, pairs, psql_db)
 
-            elif updated_task.task_type == TaskType.DPOTASK:
-                dpo_fields = await get_table_fields(cst.DPO_TASKS_TABLE, connection)
-                dpo_specific_fields = [f for f in dpo_fields if f != cst.TASK_ID]
-                specific_updates = {k: v for k, v in updates.items() if k in dpo_specific_fields}
-                if specific_updates:
-                    specific_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(specific_updates.keys())])
-                    specific_values = list(specific_updates.values())
-                    query = f"""
-                        UPDATE {cst.DPO_TASKS_TABLE}
-                        SET {specific_clause}
-                        WHERE {cst.TASK_ID} = $1
-                    """
-                    await connection.execute(query, updated_task.task_id, *specific_values)
-
-            elif updated_task.task_type == TaskType.GRPOTASK:
-                grpo_fields = await get_table_fields(cst.GRPO_TASKS_TABLE, connection)
-                grpo_specific_fields = [f for f in grpo_fields if f != cst.TASK_ID]
-                specific_updates = {k: v for k, v in updates.items() if k in grpo_specific_fields}
-                if specific_updates:
-                    specific_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(specific_updates.keys())])
-                    specific_values = list(specific_updates.values())
-                    query = f"""
-                        UPDATE {cst.GRPO_TASKS_TABLE}
-                        SET {specific_clause}
-                        WHERE {cst.TASK_ID} = $1
-                    """
-                    await connection.execute(query, updated_task.task_id, *specific_values)
+            elif task_type == TaskType.GRPOTASK:
                 if "reward_functions" in updates:
                     await delete_reward_functions(updated_task.task_id, psql_db)
                     reward_functions = [RewardFunction(**reward_function) for reward_function in updates["reward_functions"]]
                     await add_reward_functions(updated_task.task_id, reward_functions, psql_db)
-            elif updated_task.task_type == TaskType.ENVIRONMENTTASK:
-                env_fields = await get_table_fields(cst.ENV_TASKS_TABLE, connection)
-                env_specific_fields = [f for f in env_fields if f != cst.TASK_ID]
-                specific_updates = {k: v for k, v in updates.items() if k in env_specific_fields}
-                if specific_updates:
-                    specific_clause = ", ".join([f"{column} = ${i + 2}" for i, column in enumerate(specific_updates.keys())])
-                    specific_values = list(specific_updates.values())
-                    query = f"""
-                        UPDATE {cst.ENV_TASKS_TABLE}
-                        SET {specific_clause}
-                        WHERE {cst.TASK_ID} = $1
-                    """
-                    await connection.execute(query, updated_task.task_id, *specific_values)
 
             if updated_task.assigned_miners is not None:
                 await connection.execute(
@@ -867,21 +868,7 @@ async def get_task(task_id: UUID, psql_db: PSQLDB, connection: Connection | None
         if not full_row:
             return None
 
-        full_task_data = dict(full_row)
-        if task_type == TaskType.INSTRUCTTEXTTASK.value:
-            return InstructTextRawTask(**full_task_data)
-        elif task_type == TaskType.IMAGETASK.value:
-            image_text_pairs = await get_image_text_pairs(task_id, psql_db, connection)
-            return ImageRawTask(**full_task_data, image_text_pairs=image_text_pairs)
-        elif task_type == TaskType.DPOTASK.value:
-            return DpoRawTask(**full_task_data)
-        elif task_type == TaskType.GRPOTASK.value:
-            reward_functions = await get_reward_functions(task_id, psql_db, connection)
-            return GrpoRawTask(**full_task_data, reward_functions=reward_functions)
-        elif task_type == TaskType.CHATTASK.value:
-            return ChatRawTask(**full_task_data)
-        elif task_type == TaskType.ENVIRONMENTTASK.value:
-            return EnvRawTask(**full_task_data)
+        return await _build_task_from_data(task_type, full_row, task_id, psql_db, conn)
 
     if connection is not None:
         return await _get_task_inner(connection)
@@ -1008,21 +995,7 @@ async def get_task_by_id(task_id: UUID, psql_db: PSQLDB) -> AnyTypeTask:
         if not row:
             return None
 
-        full_task_data = dict(row)
-        if task_type == TaskType.INSTRUCTTEXTTASK.value:
-            return InstructTextTask(**full_task_data)
-        elif task_type == TaskType.IMAGETASK.value:
-            image_text_pairs = await get_image_text_pairs(task_id, psql_db)
-            return ImageTask(**full_task_data, image_text_pairs=image_text_pairs)
-        elif task_type == TaskType.DPOTASK.value:
-            return DpoTask(**full_task_data)
-        elif task_type == TaskType.GRPOTASK.value:
-            reward_functions = await get_reward_functions(task_id, psql_db)
-            return GrpoTask(**full_task_data, reward_functions=reward_functions)
-        elif task_type == TaskType.ENVIRONMENTTASK.value:
-            return EnvTask(**full_task_data)
-        elif task_type == TaskType.CHATTASK.value:
-            return ChatTask(**full_task_data)
+        return await _build_task_from_data(task_type, row, task_id, psql_db, connection, public=True)
 
 
 async def get_tasks_by_ids(task_ids: list[UUID], psql_db: PSQLDB, connection: Connection | None = None) -> list[AnyTypeTask]:
@@ -1172,24 +1145,7 @@ async def _create_task_from_data(
     task_type: str, task_data: dict, task_id: UUID, psql_db: PSQLDB, conn: Connection
 ) -> AnyTypeTask | None:
     """Create a task object from the given data based on task type"""
-    full_task_data = dict(task_data)
-
-    if task_type == TaskType.INSTRUCTTEXTTASK.value:
-        return InstructTextRawTask(**full_task_data)
-    elif task_type == TaskType.CHATTASK.value:
-        return ChatRawTask(**full_task_data)
-    elif task_type == TaskType.IMAGETASK.value:
-        image_text_pairs = await get_image_text_pairs(task_id, psql_db, conn)
-        return ImageRawTask(**full_task_data, image_text_pairs=image_text_pairs)
-    elif task_type == TaskType.DPOTASK.value:
-        return DpoRawTask(**full_task_data)
-    elif task_type == TaskType.GRPOTASK.value:
-        reward_functions = await get_reward_functions(task_id, psql_db, conn)
-        return GrpoRawTask(**full_task_data, reward_functions=reward_functions)
-    elif task_type == TaskType.ENVIRONMENTTASK.value:
-        return EnvRawTask(**full_task_data)
-
-    return None
+    return await _build_task_from_data(task_type, task_data, task_id, psql_db, conn)
 
 
 async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int = 100, offset: int = 0) -> list[AnyTypeTask]:
@@ -1245,7 +1201,6 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 instruct_text_row = await connection.fetchrow(instruct_text_query, task_data[cst.TASK_ID])
                 if instruct_text_row:
                     task_data.update(dict(instruct_text_row))
-                tasks.append(InstructTextTask(**task_data))
 
             elif task_type == TaskType.CHATTASK.value:
                 chat_query = f"""
@@ -1257,7 +1212,6 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 chat_row = await connection.fetchrow(chat_query, task_data[cst.TASK_ID])
                 if chat_row:
                     task_data.update(dict(chat_row))
-                tasks.append(ChatTask(**task_data))
 
             elif task_type == TaskType.IMAGETASK.value:
                 image_query = f"""
@@ -1268,8 +1222,6 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 image_row = await connection.fetchrow(image_query, task_data[cst.TASK_ID])
                 if image_row:
                     task_data.update(dict(image_row))
-                image_text_pairs = await get_image_text_pairs(task_data[cst.TASK_ID], psql_db)
-                tasks.append(ImageTask(**task_data, image_text_pairs=image_text_pairs))
 
             elif task_type == TaskType.DPOTASK.value:
                 dpo_query = f"""
@@ -1281,7 +1233,6 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 dpo_row = await connection.fetchrow(dpo_query, task_data[cst.TASK_ID])
                 if dpo_row:
                     task_data.update(dict(dpo_row))
-                tasks.append(DpoTask(**task_data))
             elif task_type == TaskType.GRPOTASK.value:
                 grpo_query = f"""
                     SELECT field_prompt, file_format
@@ -1291,8 +1242,6 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 grpo_row = await connection.fetchrow(grpo_query, task_data[cst.TASK_ID])
                 if grpo_row:
                     task_data.update(dict(grpo_row))
-                reward_functions = await get_reward_functions(task_data[cst.TASK_ID], psql_db)
-                tasks.append(GrpoTask(**task_data, reward_functions=reward_functions))
             elif task_type == TaskType.ENVIRONMENTTASK.value:
                 env_query = f"""
                     SELECT environment_names, environment_weights
@@ -1302,7 +1251,20 @@ async def get_tasks_by_account_id(psql_db: PSQLDB, account_id: UUID, limit: int 
                 env_row = await connection.fetchrow(env_query, task_data[cst.TASK_ID])
                 if env_row:
                     task_data.update(dict(env_row))
-                tasks.append(EnvTask(**task_data))
+            else:
+                logger.warning(f"Unknown task type {task_type} for task_id {task_data[cst.TASK_ID]}")
+                continue
+
+            task = await _build_task_from_data(
+                task_type,
+                task_data,
+                task_data[cst.TASK_ID],
+                psql_db,
+                connection,
+                public=True,
+            )
+            if task:
+                tasks.append(task)
         return tasks
 
 
@@ -1728,7 +1690,13 @@ async def add_reward_functions(task_id: UUID, reward_functions: list[RewardFunct
 async def get_reward_functions(task_id: UUID, psql_db: PSQLDB, connection: Connection | None = None) -> list[RewardFunction]:
     async def _get_reward_functions(conn: Connection) -> list[RewardFunction]:
         query = f"""
-            SELECT rf.{cst.REWARD_ID}, rf.{cst.REWARD_FUNC}, rf.{cst.FUNC_HASH}, rf.{cst.IS_GENERIC}, rf.{cst.IS_MANUAL}, gtf.{cst.REWARD_WEIGHT}
+            SELECT
+                rf.{cst.REWARD_ID},
+                rf.{cst.REWARD_FUNC},
+                rf.{cst.FUNC_HASH},
+                rf.{cst.IS_GENERIC},
+                rf.{cst.IS_MANUAL},
+                gtf.{cst.REWARD_WEIGHT}
             FROM {cst.REWARD_FUNCTIONS_TABLE} rf
             JOIN {cst.GRPO_TASK_FUNCTIONS_TABLE} gtf ON rf.{cst.REWARD_ID} = gtf.{cst.REWARD_ID}
             WHERE gtf.{cst.TASK_ID} = $1

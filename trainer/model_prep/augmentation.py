@@ -3,12 +3,12 @@ Model augmentation operations: layer selection and weight modification.
 All operations are deterministic given the same seed.
 """
 
-import re
 import random
+import re
 from collections import defaultdict
 
-import torch
 import numpy as np
+import torch
 
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
