@@ -3,7 +3,7 @@
 Script to reverse a tournament round by deleting it and setting the previous round back to active.
 
 Usage:
-    python reverse_tournament_round.py <tournament_id> <round_id_to_delete>
+    python -m ops.tools.tournament.reverse_tournament_round <tournament_id> <round_id_to_delete>
 
 This script will:
 1. Delete the specified round and all its associated data
@@ -13,7 +13,8 @@ This script will:
 5. Allow the tournament cycle to re-run the advancement logic
 
 Example:
-    python reverse_tournament_round.py tourn_f4eb788ad3d66f60_20250723 tourn_f4eb788ad3d66f60_20250723_round_002
+    python -m ops.tools.tournament.reverse_tournament_round \
+        tourn_f4eb788ad3d66f60_20250723 tourn_f4eb788ad3d66f60_20250723_round_002
 """
 
 import asyncio
@@ -178,9 +179,9 @@ async def reverse_tournament_round(tournament_id: str, round_id_to_delete: str, 
 async def main():
     """Main function to handle command line arguments and execute reversal."""
     if len(sys.argv) != 3:
-        print("Usage: python reverse_tournament_round.py <tournament_id> <round_id_to_delete>")
+        print("Usage: python -m ops.tools.tournament.reverse_tournament_round <tournament_id> <round_id_to_delete>")
         print(
-            "Example: python reverse_tournament_round.py tourn_f4eb788ad3d66f60_20250723 "
+            "Example: python -m ops.tools.tournament.reverse_tournament_round tourn_f4eb788ad3d66f60_20250723 "
             "tourn_f4eb788ad3d66f60_20250723_round_002"
         )
         sys.exit(1)

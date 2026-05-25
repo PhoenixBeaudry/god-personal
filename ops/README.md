@@ -9,7 +9,7 @@ This folder holds everything that helps run, build, inspect, or reproduce the sy
 - `trainer_ops/` - trainer host service files and deployment helpers.
 - `auditing/` - auditor workflow scripts.
 - `tools/config/` - interactive validator, auditor, and trainer `.env` generation.
-- `tools/tournament/` - tournament status, completion, and task recovery tools.
+- `tools/tournament/` - tournament status, creation, rollback, completion, and task recovery tools.
 - `tools/evaluation/` - manual environment/GRPO evaluation probes and reward-function helpers.
 - `tools/datasets/` - synthetic SFT dataset generation.
 - `tools/observability/` - trainer log-shipping smoke tests.
