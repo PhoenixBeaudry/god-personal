@@ -9,6 +9,7 @@ Tests mirror the source tree so a failing path points at the owning subsystem.
 - `validator/lifecycle/` covers validator task-processing lifecycle helpers.
 - `validator/evaluation/` covers scoring, PvP evaluation, and tournament score conversion.
 - `validator/tournament/` covers tournament specs, orchestration, analytics, performance, and weight behavior.
+- `ops/` covers operational config and Dockerfile regressions that are not exercised by Python imports.
 - `e2e/` contains local end-to-end PvP runners.
 
 Manual probes and one-off scripts live under `ops/manual/` instead of this tree.
