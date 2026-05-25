@@ -75,7 +75,7 @@ def test_get_task_type_routes_image_request():
         (ImageModelType.QWEN_IMAGE, cst.DEFAULT_IMAGE_TOOLKIT_DOCKERFILE_PATH),
     ],
 )
-def test_get_dockerfile_path_routes_image_model_types(model_type, expected_dockerfile):
+def test_get_dockerfile_path_routes_image_model_types(model_type, expected_dockerfile, tmp_path):
     training_data = TrainRequestImage(
         model="base-image-model",
         task_id="task-id",
@@ -83,14 +83,29 @@ def test_get_dockerfile_path_routes_image_model_types(model_type, expected_docke
         dataset_zip="s3://dataset.zip",
         model_type=model_type,
     )
+    repo_root = tmp_path
+    dockerfile = repo_root / expected_dockerfile
+    dockerfile.parent.mkdir(parents=True)
+    dockerfile.write_text("FROM scratch")
 
-    assert get_dockerfile_path(TaskType.IMAGETASK, training_data, "/repo") == f"/repo/{expected_dockerfile}"
+    assert get_dockerfile_path(TaskType.IMAGETASK, training_data, str(repo_root)) == str(dockerfile)
 
 
-def test_get_dockerfile_path_routes_text_trainers_to_text_dockerfile():
+def test_get_dockerfile_path_routes_text_trainers_to_text_dockerfile(tmp_path):
+    training_data = _text_request(InstructTextDatasetType())
+    repo_root = tmp_path
+    dockerfile = repo_root / cst.DEFAULT_TEXT_DOCKERFILE_PATH
+    dockerfile.parent.mkdir(parents=True)
+    dockerfile.write_text("FROM scratch")
+
+    assert get_dockerfile_path(TaskType.ENVIRONMENTTASK, training_data, str(repo_root)) == str(dockerfile)
+
+
+def test_get_dockerfile_path_rejects_repos_without_legacy_dockerfiles(tmp_path):
     training_data = _text_request(InstructTextDatasetType())
 
-    assert get_dockerfile_path(TaskType.ENVIRONMENTTASK, training_data, "/repo") == f"/repo/{cst.DEFAULT_TEXT_DOCKERFILE_PATH}"
+    with pytest.raises(FileNotFoundError, match="dockerfiles/standalone-text-trainer.dockerfile"):
+        get_dockerfile_path(TaskType.INSTRUCTTEXTTASK, training_data, str(tmp_path))
 
 
 def test_downloader_choices_follow_supported_trainer_task_types():

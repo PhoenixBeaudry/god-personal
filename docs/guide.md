@@ -253,21 +253,22 @@ Your training repository must include the Dockerfiles expected by the trainer:
 
 ```text
 your-training-repo/
-  ops/
-    docker/
-      standalone-text-trainer.dockerfile
-      standalone-image-trainer.dockerfile
-      standalone-image-toolkit-trainer.dockerfile
+  dockerfiles/
+    standalone-text-trainer.dockerfile
+    standalone-image-trainer.dockerfile
+    standalone-image-toolkit-trainer.dockerfile
 ```
 
-Text, chat, DPO, GRPO, and environment tasks use the text trainer path. Image tasks use the image trainer path.
+The trainer only looks at these exact submitted-repository paths. Repositories that put trainer Dockerfiles under `ops/docker/` or any other folder are rejected by the trainer.
+
+Text, chat, DPO, GRPO, and environment tasks use `dockerfiles/standalone-text-trainer.dockerfile`. SDXL and Flux image tasks use `dockerfiles/standalone-image-trainer.dockerfile`. Qwen Image and Z-Image tasks use `dockerfiles/standalone-image-toolkit-trainer.dockerfile`.
 
 Submission checklist:
 
 - Return the repository URL and exact commit from `GET /training_repo/{task_type}`.
 - Keep the commit available until the tournament is fully complete.
 - Include `LICENSE` or `LICENSE.md` and `NOTICE` files matching this repository.
-- Include the expected trainer Dockerfiles under `ops/docker/`.
+- Include the expected trainer Dockerfiles under `dockerfiles/`.
 - Upload the trained model, adapter, or LoRA to the Hugging Face repo name supplied as `--expected-repo-name`.
 - Do not require interactive input, secrets outside the documented environment variables, or network access for hidden data or weights during training.
 - Do not include obfuscated code, compiled-only training logic, bundled private datasets, or pre-trained final weights.
@@ -377,7 +378,7 @@ Rules:
 - SFT is allowed only with whitelisted datasets requested through `requested_datasets`.
 - Use the provided task data and environment interaction as the source of competitive signal.
 
-Reference rollout functions live in `ops/docker/environment_functions/`. Current environment configuration lives in `ENVIRONMENT_CONFIGS` in `core/constants.py`.
+Current environment configuration lives in `ENVIRONMENT_CONFIGS` in `core/constants.py`. Environment training repositories may organize rollout code however they like, as long as their text trainer Dockerfile builds an image whose entrypoint accepts the documented CLI arguments and reads `ENVIRONMENT_SERVER_URLS`.
 
 Useful optimization areas include training on the full episode rather than only the first prompt/completion, adding intermediate reward signals when valid, and improving VLLM placement for multi-GPU GRPO training.
 

@@ -28,7 +28,7 @@ chmod 777 "$OUTPUTS_DIR"
 docker build -t trainer-downloader -f ops/docker/trainer-downloader.dockerfile .
 
 # Build the trainer image
-docker build -t standalone-text-trainer -f ops/docker/standalone-text-trainer.dockerfile .
+docker build -t standalone-text-trainer -f dockerfiles/standalone-text-trainer.dockerfile .
 
 #Download model and dataset
 echo "Downloading model and dataset..."

@@ -30,7 +30,7 @@ chmod 700 "$OUTPUTS_DIR"
 docker build --no-cache -t trainer-downloader -f ops/docker/trainer-downloader.dockerfile .
 
 # Build the trainer image
-docker build --no-cache -t standalone-image-trainer -f ops/docker/standalone-image-trainer.dockerfile .
+docker build --no-cache -t standalone-image-trainer -f dockerfiles/standalone-image-trainer.dockerfile .
 
 # Build the hf uploader image
 docker build --no-cache -t hf-uploader -f ops/docker/hf-uploader.dockerfile .
@@ -78,4 +78,3 @@ docker run --rm --gpus all \
   --env HF_REPO_SUBFOLDER="checkpoints" \
   --name hf-uploader \
   hf-uploader
-

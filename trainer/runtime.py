@@ -65,6 +65,39 @@ def calculate_container_resources(gpu_ids: list[int]) -> tuple[str, int]:
     return memory_limit, cpu_limit_nanocpus
 
 
+def _get_or_create_docker_volume(client: docker.DockerClient, volume_name: str):
+    try:
+        return client.volumes.get(volume_name)
+    except docker.errors.NotFound:
+        return client.volumes.create(name=volume_name)
+
+
+def _add_baseline_stats_environment(
+    client: docker.DockerClient,
+    task_id: str,
+    baseline_stats: BaselineStats,
+    environment: dict[str, str],
+    log_labels: dict[str, str] | None = None,
+) -> None:
+    payload = json.dumps(baseline_stats.model_dump(mode="json"), separators=(",", ":"))
+    volume = _get_or_create_docker_volume(client, cst.CACHE_VOLUME_NAME)
+    stats_dir = os.path.join(volume.attrs["Mountpoint"], cst.BASELINE_STATS_CACHE_DIRNAME)
+    os.makedirs(stats_dir, exist_ok=True)
+
+    safe_task_id = re.sub(r"[^A-Za-z0-9_.-]", "_", task_id)
+    stats_filename = f"{safe_task_id}_{uuid.uuid4().hex}.json"
+    stats_host_path = os.path.join(stats_dir, stats_filename)
+
+    with open(stats_host_path, "w", encoding="utf-8") as stats_file:
+        stats_file.write(payload)
+
+    environment["BASELINE_STATS_PATH"] = os.path.join(cst.CACHE_ROOT_PATH, cst.BASELINE_STATS_CACHE_DIRNAME, stats_filename)
+    if len(payload) <= cst.BASELINE_STATS_ENV_MAX_CHARS:
+        environment["BASELINE_STATS"] = payload
+    else:
+        logger.info("Baseline stats omitted from BASELINE_STATS env var due to size", extra=log_labels)
+
+
 def build_docker_image(
     dockerfile_path: str,
     log_labels: dict[str, str] | None = None,
@@ -185,7 +218,7 @@ async def run_trainer_container_image(
 
     environment: dict[str, str] = {"TRANSFORMERS_CACHE": cst.HUGGINGFACE_CACHE_PATH}
     if baseline_stats:
-        environment["BASELINE_STATS"] = json.dumps(baseline_stats.model_dump())
+        _add_baseline_stats_environment(client, task_id, baseline_stats, environment, log_labels)
 
     container_name = f"image-trainer-{uuid.uuid4().hex}"
 
@@ -262,7 +295,7 @@ async def run_trainer_container_text(
 
     environment = build_wandb_env(task_id, hotkey)
     if baseline_stats:
-        environment["BASELINE_STATS"] = json.dumps(baseline_stats.model_dump())
+        _add_baseline_stats_environment(client, task_id, baseline_stats, environment, log_labels)
     if env_server_urls:
         environment["ENVIRONMENT_SERVER_URLS"] = env_server_urls
     if miner_datasets:
@@ -769,10 +802,19 @@ def get_dockerfile_path(task_type: TaskType, training_data, local_repo_path: str
     if is_image_task(task_type):
         model_type = training_data.model_type
         if model_type in [ImageModelType.Z_IMAGE, ImageModelType.QWEN_IMAGE]:
-            return f"{local_repo_path}/{cst.DEFAULT_IMAGE_TOOLKIT_DOCKERFILE_PATH}"
-        return f"{local_repo_path}/{cst.DEFAULT_IMAGE_DOCKERFILE_PATH}"
+            relative_path = cst.DEFAULT_IMAGE_TOOLKIT_DOCKERFILE_PATH
+        else:
+            relative_path = cst.DEFAULT_IMAGE_DOCKERFILE_PATH
+    else:
+        relative_path = cst.DEFAULT_TEXT_DOCKERFILE_PATH
 
-    return f"{local_repo_path}/{cst.DEFAULT_TEXT_DOCKERFILE_PATH}"
+    dockerfile_path = os.path.join(local_repo_path, relative_path)
+    if not os.path.isfile(dockerfile_path):
+        raise FileNotFoundError(
+            "Submitted training repository is missing the required trainer Dockerfile: "
+            f"{relative_path}. Expected Dockerfiles must live under dockerfiles/."
+        )
+    return dockerfile_path
 
 
 async def start_training_task(task: TrainerProxyRequest, local_repo_path: str):
