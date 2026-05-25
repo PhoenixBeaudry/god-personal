@@ -1,8 +1,9 @@
 
 import itertools
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 from core.constants import EnvironmentName
+from core.logging import get_logger
 from core.models.pvp_models import PvPGroupResults
 from core.models.scoring_models import EnvironmentWeight
 from core.models.scoring_models import GroupStagePoints
@@ -11,7 +12,6 @@ from core.models.scoring_models import TournamentScore
 from core.models.scoring_models import TournamentTypeResult
 from core.models.tournament_models import TournamentResultsWithWinners
 from core.models.tournament_models import TournamentType
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)

@@ -1,18 +1,15 @@
 import asyncio
-import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 
 import httpx
 from dotenv import load_dotenv
-from tenacity import before_sleep_log
-from tenacity import retry
-from tenacity import stop_after_attempt
-from tenacity import wait_exponential
 
 import validator.tournament.constants as cst
-from core.models.payload_models import ModelPrepJob
+from core.logging import LogContext
+from core.logging import get_logger
 from core.models.payload_models import TrainerProxyRequest
-from core.models.payload_models import TrainerTaskLog
 from core.models.payload_models import TrainRequestImage
 from core.models.payload_models import TrainRequestText
 from core.models.tournament_models import GpuRequirement
@@ -27,142 +24,23 @@ from core.models.utility_models import GPUType
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
-from validator.core.config import Config
-from validator.core.config import load_config
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.constants import GET_GPU_AVAILABILITY_ENDPOINT
-from validator.core.constants import PROXY_TRAINING_IMAGE_ENDPOINT
-from validator.core.constants import MODEL_PREP_STATUS_ENDPOINT
-from validator.core.constants import TASK_DETAILS_ENDPOINT
-from validator.core.models import AnyTypeRawTask
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.db.sql.tournaments import get_tournament_id_by_task_id
 from validator.evaluation.scoring import _get_dataset_type
-from validator.tournament.utils import get_tournament_gpu_requirement
-from validator.utils.logging import LogContext
-from validator.utils.logging import get_logger
-from validator.utils.util import try_db_connections
+from validator.shared.config import Config
+from validator.shared.config import load_config
+from validator.shared.connections import try_db_connections
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.models import AnyTypeRawTask
+from validator.tournament.resources import get_tournament_gpu_requirement
+from validator.tournament.trainer_client import fetch_trainer_gpus
+from validator.tournament.trainer_client import get_model_prep_job
+from validator.tournament.trainer_client import get_training_task_details
+from validator.tournament.trainer_client import start_training_task
 
 
 logger = get_logger(__name__)
-
-
-simple_retry = retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=2, min=4, max=10),
-    reraise=True,
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-)
-
-
-@simple_retry
-async def fetch_trainer_gpus(trainer_ip: str) -> list[GPUInfo]:
-    """
-    Fetch GPU availability information from a trainer.
-
-    Args:
-        trainer_ip: IP address of the trainer to contact
-
-    Returns:
-        List of GPUInfo objects from the trainer
-    """
-    async with httpx.AsyncClient(timeout=cst.TRAINER_HTTP_TIMEOUT) as client:
-        # Default to port 8001 if no port is specified
-        if ":" not in trainer_ip:
-            trainer_ip_with_port = f"{trainer_ip}:8001"
-        else:
-            trainer_ip_with_port = trainer_ip
-
-        url = f"http://{trainer_ip_with_port}{GET_GPU_AVAILABILITY_ENDPOINT}"
-        logger.info(f"Fetching GPU availability from trainer at {url}")
-
-        response = await client.get(url)
-        response.raise_for_status()
-
-        gpu_data = response.json()
-        gpu_infos = [GPUInfo.model_validate(gpu_info) for gpu_info in gpu_data]
-
-        logger.info(f"Retrieved {len(gpu_infos)} GPUs from trainer {trainer_ip}")
-        return gpu_infos
-
-
-@simple_retry
-async def start_training_task(trainer_ip: str, training_request: TrainerProxyRequest) -> bool:
-    """
-    Ask trainer to start training.
-
-
-    Args:
-        trainer_ip: IP address of the trainer
-        training_request: The training request to send
-
-
-    Returns:
-        bool: True if training started successfully, False otherwise
-    """
-    try:
-        # Validate the request by converting to dict and back
-        validated_request = TrainerProxyRequest.model_validate(training_request.model_dump())
-        logger.info("Schema validation passed for training request")
-    except Exception as e:
-        logger.error(f"Schema validation failed for training request: {str(e)}")
-        logger.error(f"Request payload: {training_request.model_dump()}")
-        return False
-
-    async with httpx.AsyncClient(timeout=cst.TRAINER_HTTP_TIMEOUT) as client:
-        # Default to port 8001 if no port is specified
-        if ":" not in trainer_ip:
-            trainer_ip_with_port = f"{trainer_ip}:8001"
-        else:
-            trainer_ip_with_port = trainer_ip
-
-        url = f"http://{trainer_ip_with_port}{PROXY_TRAINING_IMAGE_ENDPOINT}"
-        logger.info(f"Requesting training from trainer at {url} with payload: {validated_request.model_dump()}")
-
-        response = await client.post(url, json=validated_request.model_dump())
-        response.raise_for_status()
-
-        response_data = response.json()
-
-        # Check for no retry flag
-        if response_data.get("no_retry", False):
-            logger.warning(
-                f"Error cloning github repository for task {training_request.training_data.task_id} "
-                f"with hotkey {training_request.hotkey}"
-            )
-            return cst.NO_RETRY_RESULT
-
-        return response_data["message"] == cst.EXPECTED_TRAINING_START_MESSAGE
-
-
-@simple_retry
-async def get_training_task_details(trainer_ip: str, task_id: str, hotkey: str) -> TrainerTaskLog:
-    """
-    Get the details of a training task from a trainer.
-
-    Args:
-        trainer_ip: IP address of the trainer
-        task_id: The task ID to get details for
-        hotkey: The hotkey of the miner
-
-    Returns:
-        TrainerTaskLog: The task log from the trainer
-    """
-    async with httpx.AsyncClient(timeout=cst.TRAINER_HTTP_TIMEOUT) as client:
-        # Default to port 8001 if no port is specified
-        if ":" not in trainer_ip:
-            trainer_ip_with_port = f"{trainer_ip}:8001"
-        else:
-            trainer_ip_with_port = trainer_ip
-
-        url = f"http://{trainer_ip_with_port}{TASK_DETAILS_ENDPOINT.format(task_id=task_id)}"
-        logger.debug(f"Getting task details from trainer at {url} for task {task_id}")
-
-        response = await client.get(url, params={"hotkey": hotkey})
-        response.raise_for_status()
-
-        return TrainerTaskLog.model_validate(response.json())
 
 
 async def fetch_tournament_tasks_ready_to_train(config: Config):
@@ -998,9 +876,6 @@ async def update_all_trainers_gpu_availability_cycle(config: Config):
 _model_prep_in_progress: set[str] = set()
 
 
-_MODEL_PREP_STATUS_TIMEOUT = 5.0  # seconds — fast check, don't stall the cycle
-
-
 async def _recover_model_prep_from_trainer(task, config: Config) -> bool:
     """Check all trainers for an existing model prep job for this task.
 
@@ -1013,19 +888,11 @@ async def _recover_model_prep_from_trainer(task, config: Config) -> bool:
 
     for trainer in trainers:
         trainer_ip = trainer.trainer_ip
-        if ":" not in trainer_ip:
-            trainer_ip_with_port = f"{trainer_ip}:8001"
-        else:
-            trainer_ip_with_port = trainer_ip
 
         try:
-            url = f"http://{trainer_ip_with_port}{MODEL_PREP_STATUS_ENDPOINT.format(task_id=task_id_str)}"
-            async with httpx.AsyncClient(timeout=_MODEL_PREP_STATUS_TIMEOUT) as client:
-                response = await client.get(url)
-                if response.status_code == 404:
-                    continue
-                response.raise_for_status()
-                job = ModelPrepJob.model_validate(response.json())
+            job = await get_model_prep_job(trainer_ip, task_id_str)
+            if job is None:
+                continue
         except Exception:
             continue
 
@@ -1062,8 +929,8 @@ async def process_awaiting_model_prep_tasks(config: Config):
     """
     # Deferred imports to avoid circular dependency
     # (model_prep imports _check_suitable_gpus from this module)
-    from validator.utils.model_prep import dispatch_augmentation_and_stats
-    from validator.tournament.utils import get_tournament_gpu_requirement
+    from validator.tasks.model_prep import dispatch_augmentation_and_stats
+    from validator.tournament.resources import get_tournament_gpu_requirement
 
     async def _run_model_prep(task, trainer_ip, gpu_ids):
         task_id_str = str(task.task_id)

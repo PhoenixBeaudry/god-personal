@@ -8,27 +8,27 @@ from loguru import logger  # noqa
 from core.models.utility_models import ImageTextPair
 from core.models.utility_models import RewardFunction
 from core.models.utility_models import TaskType
-from validator.core.config import Config
-from validator.core.dependencies import get_config
-from validator.core.models import AnyTypeTask
-from validator.core.models import AnyTypeTaskWithHotkeyDetails
-from validator.core.models import ChatTask
-from validator.core.models import ChatTaskWithHotkeyDetails
-from validator.core.models import DpoTask
-from validator.core.models import EnvTask
-from validator.core.models import EnvTaskWithHotkeyDetails
-from validator.core.models import DpoTaskWithHotkeyDetails
-from validator.core.models import GrpoTask
-from validator.core.models import GrpoTaskWithHotkeyDetails
-from validator.core.models import HotkeyDetails
-from validator.core.models import ImageTask
-from validator.core.models import ImageTaskWithHotkeyDetails
-from validator.core.models import InstructTextTask
-from validator.core.models import InstructTextTaskWithHotkeyDetails
 from validator.db import constants as cst
 from validator.db.sql import tasks as tasks_sql
-from validator.utils.util import hide_sensitive_data_till_finished
-from validator.utils.util import normalise_float
+from validator.db.sql.normalization import normalise_float
+from validator.shared.config import Config
+from validator.shared.dependencies import get_config
+from validator.shared.models import AnyTypeTask
+from validator.shared.models import AnyTypeTaskWithHotkeyDetails
+from validator.shared.models import ChatTask
+from validator.shared.models import ChatTaskWithHotkeyDetails
+from validator.shared.models import DpoTask
+from validator.shared.models import DpoTaskWithHotkeyDetails
+from validator.shared.models import EnvTask
+from validator.shared.models import EnvTaskWithHotkeyDetails
+from validator.shared.models import GrpoTask
+from validator.shared.models import GrpoTaskWithHotkeyDetails
+from validator.shared.models import HotkeyDetails
+from validator.shared.models import ImageTask
+from validator.shared.models import ImageTaskWithHotkeyDetails
+from validator.shared.models import InstructTextTask
+from validator.shared.models import InstructTextTaskWithHotkeyDetails
+from validator.tasks.details import hide_sensitive_data_till_finished
 
 
 async def get_recent_tasks(

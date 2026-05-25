@@ -16,26 +16,27 @@ import openai
 import pyspiel
 from open_spiel.python.algorithms import evaluate_bots
 
-from core.constants import EnvironmentName, ENVIRONMENT_CONFIGS
-from core.models.pvp_models import (
-    ChatCompletionConfig,
-    ChatFn,
-    GameInstance,
-    GameOutcome,
-    GameScoringContext,
-    PvPEnvironmentResult,
-    PvPMatchupConfig,
-)
-from validator.core import constants as vcst
-from validator.evaluation.pvp.agents import (
-    BaseGameAgent,
-    GinRummyAgent,
-    LeducPokerAgent,
-    LiarsDiceAgent,
-)
-from validator.evaluation.pvp.bot import EmptyLegalActionsError, LLMBot, TurnTimeoutError
-from validator.evaluation.pvp.chat import chat_completion, create_client
+from core.constants import ENVIRONMENT_CONFIGS
+from core.constants import EnvironmentName
+from core.models.pvp_models import ChatCompletionConfig
+from core.models.pvp_models import ChatFn
+from core.models.pvp_models import GameInstance
+from core.models.pvp_models import GameOutcome
+from core.models.pvp_models import GameScoringContext
+from core.models.pvp_models import PvPEnvironmentResult
+from core.models.pvp_models import PvPMatchupConfig
+from validator.evaluation.pvp.agents import BaseGameAgent
+from validator.evaluation.pvp.agents import GinRummyAgent
+from validator.evaluation.pvp.agents import LeducPokerAgent
+from validator.evaluation.pvp.agents import LiarsDiceAgent
+from validator.evaluation.pvp.bot import EmptyLegalActionsError
+from validator.evaluation.pvp.bot import LLMBot
+from validator.evaluation.pvp.bot import TurnTimeoutError
+from validator.evaluation.pvp.chat import chat_completion
+from validator.evaluation.pvp.chat import create_client
 from validator.evaluation.pvp.scoring import determine_outcome
+from validator.shared import constants as vcst
+
 
 logger = logging.getLogger(__name__)
 

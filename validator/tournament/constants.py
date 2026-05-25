@@ -1,5 +1,6 @@
 from core.constants import EnvironmentName
 
+
 MAX_TRAINING_ATTEMPTS = 2
 
 # Smart prioritization thresholds for task fetching

@@ -15,13 +15,15 @@ import time
 
 import aiohttp
 
-from core.models.model_prep_models import EnvBaselineStats, EnvStats
 from core.constants import EnvironmentName
+from core.models.model_prep_models import EnvBaselineStats
+from core.models.model_prep_models import EnvStats
 from trainer.model_prep.stats import compute_weight_stats
+
 
 logger = logging.getLogger(__name__)
 
-# Default SGLang CLI flags (inlined from validator.core.constants)
+# Default SGLang CLI flags (inlined from validator.shared.constants)
 SGLANG_EXTRA_CLI_DEFAULT = (
     "--attention-backend triton --prefill-attention-backend triton "
     "--decode-attention-backend triton --sampling-backend pytorch"

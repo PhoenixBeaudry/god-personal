@@ -12,9 +12,13 @@ import signal
 import numpy as np
 import pyspiel
 
-from core.models.pvp_models import ChatCompletionConfig, ChatFn, ChatMessage, ChatRole
-from validator.core import constants as vcst
+from core.models.pvp_models import ChatCompletionConfig
+from core.models.pvp_models import ChatFn
+from core.models.pvp_models import ChatMessage
+from core.models.pvp_models import ChatRole
 from validator.evaluation.pvp.agents import BaseGameAgent
+from validator.shared import constants as vcst
+
 
 logger = logging.getLogger(__name__)
 

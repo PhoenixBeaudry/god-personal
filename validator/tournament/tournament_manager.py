@@ -7,9 +7,12 @@ from datetime import timezone
 
 from fiber.chain.models import Node
 
+import validator.shared.constants as cst
 from core.constants import RAYONLABS_HF_USERNAME
 from core.constants import TrainingStartPoint
-import validator.core.constants as cst
+from core.datasets.whitelist import validate_requested_datasets
+from core.logging import LogContext
+from core.logging import get_logger
 from core.models.payload_models import TrainingRepoResponse
 from core.models.tournament_models import Group
 from core.models.tournament_models import GroupRound
@@ -27,10 +30,7 @@ from core.models.tournament_models import TournamentType
 from core.models.tournament_models import generate_round_id
 from core.models.tournament_models import generate_tournament_id
 from core.models.utility_models import TaskStatus
-from core.whitelisted_sft_datasets import validate_requested_datasets
-from validator.core.config import Config
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.models import AnyTypeTask
+from core.service_paths import TRAINING_REPO_ENDPOINT
 from validator.db.database import PSQLDB
 from validator.db.sql import tasks as task_sql
 from validator.db.sql.nodes import get_all_nodes
@@ -62,29 +62,30 @@ from validator.db.sql.tournaments import update_tournament_winner_hotkey
 from validator.db.sql.tournaments import update_tournament_winner_model
 from validator.db.sql.transfers import deduct_tournament_participation_fee
 from validator.db.sql.transfers import get_coldkey_balance_by_address
+from validator.infrastructure.content_service import process_non_stream_fiber_get
+from validator.shared.config import Config
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.models import AnyTypeTask
 from validator.tournament import constants as t_cst
 from validator.tournament.benchmark_utils import create_benchmark_tasks_for_tournament_winner
+from validator.tournament.environment_results import determine_env_tournament_winner
+from validator.tournament.notifications import notify_tournament_completed
+from validator.tournament.notifications import notify_tournament_started
+from validator.tournament.notifications import send_to_discord
+from validator.tournament.participants import deduplicate_by_github_account
+from validator.tournament.participants import get_base_contestant
+from validator.tournament.participants import get_challenger_participant_for_retained_boss
+from validator.tournament.participants import get_latest_tournament_winner_participant
+from validator.tournament.participants import validate_github_tokens
+from validator.tournament.participants import validate_repo_license
+from validator.tournament.participants import validate_repo_obfuscation
 from validator.tournament.repo_uploader import upload_tournament_participant_repository
+from validator.tournament.reports import generate_diff_report_and_notify_tournament_completed
+from validator.tournament.round_results import get_round_winners
 from validator.tournament.task_creator import create_environment_tournament_tasks
 from validator.tournament.task_creator import create_image_tournament_tasks
 from validator.tournament.task_creator import create_text_tournament_tasks
 from validator.tournament.task_creator import replace_tournament_task
-from validator.tournament.utils import determine_env_tournament_winner
-from validator.tournament.utils import generate_diff_report_and_notify_tournament_completed
-from validator.tournament.utils import get_base_contestant
-from validator.tournament.utils import get_challenger_participant_for_retained_boss
-from validator.tournament.utils import get_latest_tournament_winner_participant
-from validator.tournament.utils import get_round_winners
-from validator.tournament.utils import notify_tournament_completed
-from validator.tournament.utils import notify_tournament_started
-from validator.tournament.utils import send_to_discord
-from validator.tournament.utils import deduplicate_by_github_account
-from validator.tournament.utils import validate_github_tokens
-from validator.tournament.utils import validate_repo_license
-from validator.tournament.utils import validate_repo_obfuscation
-from validator.utils.call_endpoint import process_non_stream_fiber_get
-from validator.utils.logging import LogContext
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)
@@ -829,7 +830,7 @@ async def populate_tournament_participants(tournament_id: str, config: Config, p
 async def _get_miner_training_repo(node: Node, config: Config, tournament_type: TournamentType) -> TrainingRepoResponse | None:
     """Get training repo from a miner, similar to how submissions are fetched in the main validator cycle."""
     try:
-        url = f"{cst.TRAINING_REPO_ENDPOINT}/{tournament_type.value}"
+        url = f"{TRAINING_REPO_ENDPOINT}/{tournament_type.value}"
         response = await process_non_stream_fiber_get(url, config, node)
 
         if response and isinstance(response, dict):

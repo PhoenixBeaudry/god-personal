@@ -23,8 +23,8 @@ from llava.mm_utils import get_model_name_from_path
 from minio import Minio
 from PIL import Image
 
+import validator.infrastructure.comfy_gateway as api_gate
 import validator.tasks.image_synth.constants as cst
-import validator.utils.comfy_api_gate as api_gate
 
 
 COMFY_MAIN_PATH = "/app/validator/tasks/image_synth/ComfyUI/main.py"

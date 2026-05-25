@@ -21,12 +21,12 @@ from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
 
 from core import constants as cst
-from core.utils import download_s3_file
+from core.constants import EnvironmentName
+from core.downloads import download_s3_file
 from core.models.model_prep_models import AugmentationConfig
 from core.models.model_prep_models import AugmentationScope
 from core.models.model_prep_models import AugmentationType
 from core.models.model_prep_models import ModelPrepResult
-from core.constants import EnvironmentName
 from core.models.utility_models import TaskType
 from trainer.model_prep.augmentation import augment_model
 from trainer.model_prep.env_stats import compute_env_stats

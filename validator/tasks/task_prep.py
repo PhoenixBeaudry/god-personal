@@ -15,24 +15,24 @@ from datasets import concatenate_datasets
 from datasets import load_dataset
 from fiber import Keypair
 
-import validator.core.constants as cst
+import validator.shared.constants as cst
 from core import constants as core_cst
+from core.downloads import download_s3_file
+from core.logging import get_logger
 from core.models.payload_models import ImageTextPair
 from core.models.utility_models import FileFormat
-from core.utils import download_s3_file
-from validator.core.models import AnyTextTypeRawTask
-from validator.core.models import ChatRawTask
-from validator.core.models import DpoRawTask
-from validator.core.models import EnvRawTask
-from validator.core.models import GrpoRawTask
-from validator.core.models import InstructTextRawTask
 from validator.db.sql.tasks import update_task
-from validator.evaluation.utils import get_default_dataset_config
-from validator.utils.cache_clear import delete_dataset_from_cache
-from validator.utils.logging import get_logger
-from validator.utils.reward_functions import validate_reward_function
-from validator.utils.util import save_json_to_temp_file
-from validator.utils.util import upload_file_to_minio
+from validator.evaluation.dataset_configs import get_default_dataset_config
+from validator.infrastructure.cache import delete_dataset_from_cache
+from validator.infrastructure.storage import save_json_to_temp_file
+from validator.infrastructure.storage import upload_file_to_minio
+from validator.shared.models import AnyTextTypeRawTask
+from validator.shared.models import ChatRawTask
+from validator.shared.models import DpoRawTask
+from validator.shared.models import EnvRawTask
+from validator.shared.models import GrpoRawTask
+from validator.shared.models import InstructTextRawTask
+from validator.tasks.reward_functions import validate_reward_function
 
 
 logger = get_logger(__name__)

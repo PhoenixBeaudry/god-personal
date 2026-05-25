@@ -11,16 +11,10 @@ from pydantic import Field
 from pydantic import field_validator
 
 from core.models.payload_models import TrainingRepoResponse
-from core.constants import EnvironmentName
-from core.models.scoring_models import EnvironmentWeight
-from core.models.scoring_models import EvalHotkeyResults
-from core.models.scoring_models import GroupStagePoints
-from core.models.scoring_models import PairwiseOutcome
 from core.models.scoring_models import TournamentScore
-from core.models.scoring_models import TournamentTypeResult
 from core.models.utility_models import TaskType
 from core.models.utility_models import TrainingStatus
-from validator.core.models import AnyTypeRawTask
+from validator.shared.models import AnyTypeRawTask
 
 
 class TrainingRepoInfo(NamedTuple):

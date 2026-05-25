@@ -4,14 +4,14 @@ from fastapi import HTTPException
 from loguru import logger
 from pydantic import BaseModel  # noqa
 
-from validator.core.config import Config
-from validator.core.dependencies import get_config
-from validator.core.models import AnyTypeTask
-from validator.core.models import AnyTypeTaskWithHotkeyDetails
 from validator.db.sql.auditing import get_latest_scores_url
 from validator.db.sql.auditing import get_recent_tasks
 from validator.db.sql.auditing import get_recent_tasks_for_hotkey
 from validator.db.sql.auditing import get_task_with_hotkey_details
+from validator.shared.config import Config
+from validator.shared.dependencies import get_config
+from validator.shared.models import AnyTypeTask
+from validator.shared.models import AnyTypeTaskWithHotkeyDetails
 
 
 router = APIRouter(tags=["auditing"])

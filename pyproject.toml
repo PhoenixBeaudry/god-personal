@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "Gradients-on-Demand"
 version = "0.0.3"
-description = "Validator and Miner for Gradients on Demand"
+description = "Validator, trainer, miner, and tournament orchestration for Gradients on Demand"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -38,6 +38,8 @@ dependencies = [
     "pandas==2.2.3",
     "basilica-sdk==0.17.0",
     "claude-agent-sdk==0.1.69",
+    "openai>=1.0.0,<2.0.0",
+    "cryptography",
     "gitpython",
     "astor",
 ]
@@ -66,13 +68,35 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["core", "trainer", "miner", "validator", "ops"]
 
 [tool.hatch.build]
-include = ["src/**/*.py"]
+include = [
+    "core/training_templates/**/*",
+    "core/**/*.json",
+    "core/**/*.py",
+    "miner/**/*",
+    "ops/**/*",
+    "trainer/**/*",
+    "validator/evaluation/comfy_workflows/*.json",
+    "validator/resources/**/*",
+    "validator/tasks/**/*.json",
+    "validator/**/*.py",
+]
 
 [tool.hatch.build.targets.sdist]
-include = ["fiber"]
+include = [
+    "AGENTS.md",
+    "LICENSE.md",
+    "NOTICE",
+    "README.md",
+    "core",
+    "docs",
+    "miner",
+    "ops",
+    "trainer",
+    "validator",
+]
 
 [tool.ruff]
 line-length = 130
@@ -101,8 +125,10 @@ extend-ignore-identifiers-re = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--random-order --cov=src --cov-report=term-missing --cov-report=xml"
+addopts = "--random-order"
 asyncio_mode = "auto"
+testpaths = ["tests"]
 
 
-# Missing pyright from here
+# Coverage is intentionally opt-in. Use:
+# pytest --cov=core --cov=trainer --cov=validator --cov-report=term-missing --cov-report=xml

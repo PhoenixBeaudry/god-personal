@@ -14,30 +14,30 @@ from core.models.payload_models import TrainerJob
 from core.models.payload_models import TrainerProxyRequest
 from core.models.payload_models import TrainerTaskLog
 from core.models.utility_models import GPUInfo
+from core.service_paths import GET_GPU_AVAILABILITY_ENDPOINT
+from core.service_paths import GET_RECENT_TASKS_ENDPOINT
+from core.service_paths import MODEL_PREP_ENDPOINT
+from core.service_paths import MODEL_PREP_STATUS_ENDPOINT
+from core.service_paths import PROXY_TRAINING_IMAGE_ENDPOINT
+from core.service_paths import TASK_DETAILS_ENDPOINT
 from trainer import constants as cst
-from trainer.image_manager import run_model_prep_container
-from trainer.image_manager import start_training_task
-from trainer.tasks import _start_task_unlocked
-from trainer.tasks import _task_lock
-from trainer.tasks import complete_model_prep
-from trainer.tasks import complete_task
-from trainer.tasks import get_recent_tasks
-from trainer.tasks import get_task
-from trainer.tasks import get_model_prep_job
-from trainer.tasks import load_task_history
-from trainer.tasks import log_task
-from trainer.tasks import _start_model_prep_unlocked
-from trainer.utils.dataset_whitelist import download_whitelisted_datasets
-from trainer.utils.misc import are_gpus_available
-from trainer.utils.misc import clone_repo
-from trainer.utils.misc import get_gpu_info
-from trainer.utils.trainer_logging import logger
-from validator.core.constants import GET_GPU_AVAILABILITY_ENDPOINT
-from validator.core.constants import GET_RECENT_TASKS_ENDPOINT
-from validator.core.constants import MODEL_PREP_ENDPOINT
-from validator.core.constants import MODEL_PREP_STATUS_ENDPOINT
-from validator.core.constants import PROXY_TRAINING_IMAGE_ENDPOINT
-from validator.core.constants import TASK_DETAILS_ENDPOINT
+from trainer.containers.dataset_cache import download_whitelisted_datasets
+from trainer.host import are_gpus_available
+from trainer.host import clone_repo
+from trainer.host import get_gpu_info
+from trainer.job_state import _start_model_prep_unlocked
+from trainer.job_state import _start_task_unlocked
+from trainer.job_state import _task_lock
+from trainer.job_state import complete_model_prep
+from trainer.job_state import complete_task
+from trainer.job_state import get_model_prep_job
+from trainer.job_state import get_recent_tasks
+from trainer.job_state import get_task
+from trainer.job_state import load_task_history
+from trainer.job_state import log_task
+from trainer.runtime import run_model_prep_container
+from trainer.runtime import start_training_task
+from trainer.telemetry import logger
 
 
 load_task_history()
@@ -64,14 +64,14 @@ async def _run_training_with_clone(req: TrainerProxyRequest) -> None:
             task_id=req.training_data.task_id,
             hotkey=req.hotkey,
         )
-    except Exception as e:
+    except Exception:
         await log_task(task_id, hotkey, "Failed to clone repository")
         await complete_task(task_id, hotkey, success=False)
         logger.exception("Repository clone failed before training start", extra={"task_id": task_id, "hotkey": hotkey})
         return
 
     logger.info(
-        f"Repository cloned successfully",
+        "Repository cloned successfully",
         extra={"task_id": task_id, "hotkey": hotkey, "model": req.training_data.model},
     )
 

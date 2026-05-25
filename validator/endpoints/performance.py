@@ -1,21 +1,21 @@
 from fastapi import APIRouter
 from fastapi import Depends
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 from core.models.tournament_models import BossBattleResponse
 from core.models.tournament_models import MultiWeightProjectionResponse
 from core.models.tournament_models import TournamentBurnData
 from core.models.tournament_models import TournamentType
 from core.models.tournament_models import TournamentWeightsResponse
 from core.models.tournament_models import WeightProjectionResponse
-from validator.core.config import Config
-from validator.core.dependencies import get_config
-from validator.core.weight_setting import build_tournament_audit_data
-from validator.core.weight_setting import get_tournament_burn_details
-from validator.tournament.performance_utils import calculate_scaled_weights
 from validator.db.sql.tournaments import get_latest_completed_tournament
 from validator.evaluation.tournament_scoring import get_tournament_weights_from_data
+from validator.shared.config import Config
+from validator.shared.dependencies import get_config
+from validator.shared.weight_setting import build_tournament_audit_data
+from validator.shared.weight_setting import get_tournament_burn_details
 from validator.tournament.performance_calculator import calculate_boss_round_performance_differences
+from validator.tournament.performance_utils import calculate_scaled_weights
 from validator.tournament.performance_utils import calculate_tournament_projection
 from validator.tournament.performance_utils import get_top_ranked_miners
 

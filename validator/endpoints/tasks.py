@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi import Query
 from fastapi import Response
 
+from core.logging import get_logger
 from core.models.payload_models import AllOfNodeResults
 from core.models.payload_models import AnyTypeTaskDetails
 from core.models.payload_models import BenchmarkResult
@@ -15,8 +16,8 @@ from core.models.payload_models import BenchmarkRootTaskResults
 from core.models.payload_models import LeaderboardRow
 from core.models.payload_models import NewTaskRequestChat
 from core.models.payload_models import NewTaskRequestDPO
-from core.models.payload_models import NewTaskRequestGrpo
 from core.models.payload_models import NewTaskRequestEnvironment
+from core.models.payload_models import NewTaskRequestGrpo
 from core.models.payload_models import NewTaskRequestImage
 from core.models.payload_models import NewTaskRequestImageZip
 from core.models.payload_models import NewTaskRequestInstructText
@@ -29,34 +30,33 @@ from core.models.utility_models import MinerTaskResult
 from core.models.utility_models import TaskMinerResult
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
-from validator.core.config import Config
-from validator.core.constants import MAX_CONCURRENT_JOBS
-from validator.core.dependencies import get_api_key
-from validator.core.dependencies import get_config
-from validator.core.models import ChatRawTask
-from validator.core.models import DetailedNetworkStats
-from validator.core.models import DpoRawTask
-from validator.core.models import GrpoRawTask
-from validator.core.models import EnvRawTask
-from validator.core.models import ImageRawTask
-from validator.core.models import InstructTextRawTask
-from validator.core.models import NetworkStats
 from validator.db.sql import grpo as grpo_sql
 from validator.db.sql import submissions_and_scoring as submissions_and_scoring_sql
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.db.sql.nodes import get_all_nodes
-from validator.tournament.utils import notify_organic_task_created
-from validator.utils.logging import get_logger
-from validator.utils.dataset_columns_api import collect_columns_chat
-from validator.utils.dataset_columns_api import collect_columns_instruct
-from validator.utils.dataset_columns_api import validate_chat_task_columns
-from validator.utils.dataset_columns_api import validate_dataset_columns
-from validator.utils.dataset_columns_api import validate_dpo_task_columns
-from validator.utils.dataset_columns_api import validate_grpo_task_columns
-from validator.utils.dataset_columns_api import validate_instruct_task_columns
-from validator.utils.util import convert_task_to_task_details
-from validator.utils.util import hide_sensitive_data_till_finished
+from validator.shared.config import Config
+from validator.shared.constants import MAX_CONCURRENT_JOBS
+from validator.shared.dependencies import get_api_key
+from validator.shared.dependencies import get_config
+from validator.shared.models import ChatRawTask
+from validator.shared.models import DetailedNetworkStats
+from validator.shared.models import DpoRawTask
+from validator.shared.models import EnvRawTask
+from validator.shared.models import GrpoRawTask
+from validator.shared.models import ImageRawTask
+from validator.shared.models import InstructTextRawTask
+from validator.shared.models import NetworkStats
+from validator.tasks.dataset_columns import collect_columns_chat
+from validator.tasks.dataset_columns import collect_columns_instruct
+from validator.tasks.dataset_columns import validate_chat_task_columns
+from validator.tasks.dataset_columns import validate_dataset_columns
+from validator.tasks.dataset_columns import validate_dpo_task_columns
+from validator.tasks.dataset_columns import validate_grpo_task_columns
+from validator.tasks.dataset_columns import validate_instruct_task_columns
+from validator.tasks.details import convert_task_to_task_details
+from validator.tasks.details import hide_sensitive_data_till_finished
+from validator.tournament.notifications import notify_organic_task_created
 
 
 logger = get_logger(__name__)

@@ -15,37 +15,34 @@ Usage:
 
 import argparse
 import asyncio
-import json
 import sys
 import time
 import traceback
 
 from dotenv import load_dotenv
+
+
 load_dotenv(".vali.env", override=True)
 
-from core.models.model_prep_models import (
-    DpoBaselineStats,
-    EnvBaselineStats,
-    GrpoBaselineStats,
-    InstructBaselineStats,
-)
+from core.logging import get_logger
+from core.models.model_prep_models import DpoBaselineStats
+from core.models.model_prep_models import EnvBaselineStats
+from core.models.model_prep_models import GrpoBaselineStats
+from core.models.model_prep_models import InstructBaselineStats
 from core.models.utility_models import TaskType
-from validator.core.config import load_config
-from validator.core.task_config_models import get_task_config
 from validator.db.sql import tasks as task_sql
-from validator.tasks.synthetic_scheduler import (
-    _get_dpo_datasets,
-    _get_instruct_text_datasets,
-    _get_text_models,
-    create_synthetic_dpo_task,
-    create_synthetic_env_task,
-    create_synthetic_grpo_task,
-    create_synthetic_instruct_text_task,
-)
-from validator.utils.logging import get_logger
-from validator.utils.model_prep import dispatch_augmentation_and_stats
+from validator.shared.config import load_config
+from validator.tasks.config import get_task_config
+from validator.tasks.model_prep import dispatch_augmentation_and_stats
+from validator.tasks.synthetic_scheduler import _get_dpo_datasets
+from validator.tasks.synthetic_scheduler import _get_instruct_text_datasets
+from validator.tasks.synthetic_scheduler import _get_text_models
+from validator.tasks.synthetic_scheduler import create_synthetic_dpo_task
+from validator.tasks.synthetic_scheduler import create_synthetic_env_task
+from validator.tasks.synthetic_scheduler import create_synthetic_grpo_task
+from validator.tasks.synthetic_scheduler import create_synthetic_instruct_text_task
 from validator.tournament.orchestrator import _check_suitable_gpus
-from validator.tournament.utils import get_tournament_gpu_requirement
+from validator.tournament.resources import get_tournament_gpu_requirement
 
 
 logger = get_logger(__name__)
@@ -90,13 +87,13 @@ async def _prep_and_verify(task, config, task_type_label: str) -> dict:
 
     try:
         # Step 1: Task prep (dataset download, split, S3 upload)
-        print(f"  Prepping task (dataset download + split)...")
+        print("  Prepping task (dataset download + split)...")
         task_config = get_task_config(task)
         task = await task_config.task_prep_function(task, config.keypair, config.psql_db)
         print(f"  Prep done: training_data={task.training_data is not None}, test_data={task.test_data is not None}")
 
         # Step 2: Model prep dispatch
-        print(f"  Dispatching model prep to trainer...")
+        print("  Dispatching model prep to trainer...")
         reward_fns = getattr(task, "reward_functions", None)
         is_env_task = task.task_type == TaskType.ENVIRONMENTTASK
 
@@ -151,9 +148,9 @@ async def _prep_and_verify(task, config, task_type_label: str) -> dict:
 
             if hasattr(stats, "dataset"):
                 if stats.dataset.total_tokens <= 0:
-                    errors.append(f"total_tokens <= 0")
+                    errors.append("total_tokens <= 0")
                 if stats.dataset.vocab_size <= 0:
-                    errors.append(f"vocab_size <= 0")
+                    errors.append("vocab_size <= 0")
 
             if hasattr(stats, "weights"):
                 if not stats.weights.by_group:
@@ -235,19 +232,19 @@ async def main():
             print(f"{'#'*60}")
 
         if not args.only or args.only == "instruct":
-            print(f"\n--- Instruct Task ---")
+            print("\n--- Instruct Task ---")
             results.append(await test_instruct(config, models, instruct_datasets))
 
         if not args.only or args.only == "dpo":
-            print(f"\n--- DPO Task ---")
+            print("\n--- DPO Task ---")
             results.append(await test_dpo(config, models, dpo_datasets))
 
         if not args.only or args.only == "grpo":
-            print(f"\n--- GRPO Task ---")
+            print("\n--- GRPO Task ---")
             results.append(await test_grpo(config, models, instruct_datasets))
 
         if (not args.only or args.only == "env") and not args.skip_env:
-            print(f"\n--- Environment Task ---")
+            print("\n--- Environment Task ---")
             results.append(await test_env(config, models, instruct_datasets))
 
     # Summary

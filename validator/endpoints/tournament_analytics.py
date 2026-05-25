@@ -10,8 +10,9 @@ from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 import validator.tournament.constants as tourn_cst
+from core.logging import get_logger
 from core.models.payload_models import GpuRequirementSummary
 from core.models.payload_models import TournamentGpuRequirementsResponse
 from core.models.tournament_models import ActiveTournamentInfo
@@ -31,24 +32,23 @@ from core.models.tournament_models import TournamentResultsWithWinners
 from core.models.tournament_models import TournamentStatus
 from core.models.tournament_models import TournamentType
 from core.models.utility_models import TaskStatus
-from validator.core.config import Config
-from validator.core.constants import LATEST_TOURNAMENTS_CACHE_KEY
-from validator.core.constants import LATEST_TOURNAMENTS_CACHE_TTL
-from validator.core.constants import TASK_DETAILS_ENDPOINT
-from validator.core.dependencies import get_api_key
-from validator.core.dependencies import get_config
-from validator.core.weight_setting import get_tournament_burn_details
+from core.service_paths import TASK_DETAILS_ENDPOINT
 from validator.db.sql import benchmark_tasks
 from validator.db.sql import tasks as task_sql
 from validator.db.sql import tournaments as tournament_sql
 from validator.evaluation.tournament_scoring import calculate_tournament_type_scores_from_data
+from validator.shared.config import Config
+from validator.shared.constants import LATEST_TOURNAMENTS_CACHE_KEY
+from validator.shared.constants import LATEST_TOURNAMENTS_CACHE_TTL
+from validator.shared.dependencies import get_api_key
+from validator.shared.dependencies import get_config
+from validator.shared.weight_setting import get_tournament_burn_details
 from validator.tournament.performance_calculator import calculate_boss_round_performance_differences
 from validator.tournament.performance_calculator import get_tournament_performance_data
+from validator.tournament.resources import get_tournament_gpu_requirement
 from validator.tournament.tournament_manager import _calculate_next_tournament_start_time
 from validator.tournament.tournament_manager import _get_tournament_schedule
 from validator.tournament.tournament_manager import get_tournament_completion_time
-from validator.tournament.utils import get_tournament_gpu_requirement
-from validator.utils.logging import get_logger
 
 
 logger = get_logger(__name__)

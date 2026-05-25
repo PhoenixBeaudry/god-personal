@@ -1,6 +1,4 @@
-import asyncio
 import json
-import os
 import random
 import re
 import uuid
@@ -12,7 +10,8 @@ from typing import AsyncGenerator
 import httpx
 from fiber import Keypair
 
-import validator.core.constants as cst
+import validator.shared.constants as cst
+from core.logging import get_logger
 from core.models.payload_models import ImageModelInfo
 from core.models.payload_models import ImageTextPair
 from core.models.utility_models import ImageModelType
@@ -20,16 +19,14 @@ from core.models.utility_models import Message
 from core.models.utility_models import Role
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
-from validator.core.config import Config
-from validator.core.models import ImageRawTask
-from validator.core.models import RawTask
 from validator.db.sql.tasks import add_task
-from validator.utils.call_endpoint import post_to_nineteen_image
-from validator.utils.llm import convert_to_nineteen_payload
-from validator.utils.llm import post_to_nineteen_chat_with_reasoning
-from validator.utils.logging import get_logger
-from validator.utils.augmentation_decision import maybe_get_augmentation_config
-from validator.utils.util import retry_with_backoff
+from validator.infrastructure.llm import convert_to_nineteen_payload
+from validator.infrastructure.llm import post_to_nineteen_chat_with_reasoning
+from validator.infrastructure.retries import retry_with_backoff
+from validator.shared.config import Config
+from validator.shared.models import ImageRawTask
+from validator.shared.models import RawTask
+from validator.tasks.augmentation import maybe_get_augmentation_config
 
 
 logger = get_logger(__name__)

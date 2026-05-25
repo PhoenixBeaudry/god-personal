@@ -1,23 +1,23 @@
 from datetime import datetime
 from datetime import timezone
 
-import validator.core.constants as cts
+import validator.shared.constants as cts
 from core.models.tournament_models import MinerEmissionWeight
 from core.models.tournament_models import TournamentAuditData
 from core.models.tournament_models import TournamentProjection
 from core.models.tournament_models import TournamentType
 from core.models.tournament_models import WeightProjection
-from validator.core.constants import EMISSION_BURN_HOTKEY
-from validator.core.weight_setting import calculate_emission_boost_from_perf
-from validator.core.weight_setting import calculate_hybrid_decays
-from validator.core.weight_setting import calculate_tournament_weight_with_decay
 from validator.db.sql.tournaments import count_champion_consecutive_wins
 from validator.db.sql.tournaments import get_active_tournament_participants
 from validator.db.sql.tournaments import get_latest_completed_tournament
 from validator.db.sql.tournaments import get_tournament_participants
 from validator.db.sql.tournaments import get_tournament_where_champion_first_won
 from validator.evaluation.tournament_scoring import exponential_decline_mapping
-from validator.tournament.utils import get_real_tournament_winner
+from validator.shared.constants import EMISSION_BURN_HOTKEY
+from validator.shared.weight_setting import calculate_emission_boost_from_perf
+from validator.shared.weight_setting import calculate_hybrid_decays
+from validator.shared.weight_setting import calculate_tournament_weight_with_decay
+from validator.tournament.champions import get_real_tournament_winner
 
 
 def calculate_scaled_weights(

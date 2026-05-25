@@ -3,10 +3,10 @@ from fastapi import Body
 from fastapi import Depends
 from fiber.chain.models import Node
 
-from validator.core.config import Config
-from validator.core.dependencies import get_config
+from core.logging import get_logger
 from validator.db import sql
-from validator.utils.logging import get_logger
+from validator.shared.config import Config
+from validator.shared.dependencies import get_config
 
 
 logger = get_logger(__name__)

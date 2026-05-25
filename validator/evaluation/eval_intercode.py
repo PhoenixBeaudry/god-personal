@@ -47,11 +47,9 @@ from huggingface_hub import snapshot_download
 
 from core import constants as cst
 from core.models.utility_models import EnvironmentDatasetType
-from validator.core import constants as vcst
-from validator.evaluation.utils import (
-    check_for_lora,
-    check_lora_has_added_tokens,
-)
+from validator.evaluation.model_checks import check_for_lora
+from validator.evaluation.model_checks import check_lora_has_added_tokens
+from validator.shared import constants as vcst
 
 
 logger = logging.getLogger(__name__)
@@ -118,7 +116,8 @@ def _merge_base_and_lora(base_model_path: str, lora_dir: str, output_dir: str = 
 
     import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM
+    from transformers import AutoTokenizer
 
     logger.info("eval_setup merge: start base=%s lora=%s out=%s", base_model_path, lora_dir, output_dir)
     base_tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)

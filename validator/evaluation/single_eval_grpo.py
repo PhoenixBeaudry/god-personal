@@ -1,8 +1,8 @@
 import sys
 
-from validator.core.models import EvaluationArgs
+from core.logging import get_logger
 from validator.evaluation.eval_grpo import evaluate_grpo_repo
-from validator.utils.logging import get_logger
+from validator.shared.models import EvaluationArgs
 
 
 logger = get_logger(__name__)

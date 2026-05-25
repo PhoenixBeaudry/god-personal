@@ -10,12 +10,13 @@ from uuid import UUID
 import yaml
 from substrateinterface import Keypair
 
-import validator.core.constants as vcst
+import validator.shared.constants as vcst
+from core.constants import EnvironmentName
+from core.constants import TrainingStartPoint
+from core.logging import get_logger
 from core.models.payload_models import ImageModelInfo
 from core.models.payload_models import ImageModelsResponse
 from core.models.payload_models import InstructTextDatasetColumnsResponse
-from core.constants import EnvironmentName
-from core.constants import TrainingStartPoint
 from core.models.scoring_models import EnvironmentWeight
 from core.models.utility_models import FileFormat
 from core.models.utility_models import Message
@@ -23,25 +24,24 @@ from core.models.utility_models import Prompts
 from core.models.utility_models import Role
 from core.models.utility_models import TaskStatus
 from core.models.utility_models import TaskType
-from validator.core.config import Config
-from validator.core.models import Dataset
-from validator.core.models import DpoRawTask
-from validator.core.models import EnvRawTask
-from validator.core.models import GrpoRawTask
-from validator.core.models import InstructTextRawTask
-from validator.core.models import RawTask
-from validator.core.models import RewardFunction
 from validator.db.sql import grpo as grpo_sql
 from validator.db.sql.grpo import get_generic_reward_functions_from_db
 from validator.db.sql.tasks import add_task
+from validator.infrastructure.content_service import call_content_service
+from validator.infrastructure.llm import convert_to_nineteen_payload
+from validator.infrastructure.llm import post_to_nineteen_chat_with_reasoning
+from validator.infrastructure.retries import retry_with_backoff
+from validator.shared.config import Config
+from validator.shared.models import Dataset
+from validator.shared.models import DpoRawTask
+from validator.shared.models import EnvRawTask
+from validator.shared.models import GrpoRawTask
+from validator.shared.models import InstructTextRawTask
+from validator.shared.models import RawTask
+from validator.shared.models import RewardFunction
+from validator.tasks.augmentation import maybe_get_augmentation_config
+from validator.tasks.reward_functions import validate_reward_function
 from validator.tournament import constants as t_cst
-from validator.utils.augmentation_decision import maybe_get_augmentation_config
-from validator.utils.call_endpoint import call_content_service
-from validator.utils.llm import convert_to_nineteen_payload
-from validator.utils.llm import post_to_nineteen_chat_with_reasoning
-from validator.utils.logging import get_logger
-from validator.utils.reward_functions import validate_reward_function
-from validator.utils.util import retry_with_backoff
 
 
 logger = get_logger(__name__)
@@ -191,7 +191,7 @@ async def _get_columns_for_instruct_dataset(
     dataset_id: str,
     keypair: Keypair,
 ) -> InstructTextDatasetColumnsResponse:
-    from validator.utils.call_endpoint import call_content_service_fast
+    from validator.infrastructure.content_service import call_content_service_fast
 
     url = vcst.GET_COLUMNS_FOR_DATASET_ENDPOINT.replace("{dataset}", dataset_id)
     logger.info(f"Getting columns for dataset {dataset_id} - ACTUAL MAPPING CALL")
@@ -234,7 +234,7 @@ async def get_dataset(
 
         if task_type and keypair and task_type != TaskType.DPOTASK:
             try:
-                from validator.utils.call_endpoint import call_content_service_fast
+                from validator.infrastructure.content_service import call_content_service_fast
 
                 url = vcst.GET_COLUMNS_FOR_DATASET_ENDPOINT.replace("{dataset}", dataset.dataset_id)
                 logger.info(f"PRE-VALIDATION: Checking column mapping for dataset {dataset.dataset_id}")

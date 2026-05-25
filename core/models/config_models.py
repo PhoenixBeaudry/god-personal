@@ -15,6 +15,10 @@ class BaseConfig:
 class MinerConfig(BaseConfig):
     min_stake_threshold: str
     refresh_nodes: bool
+    miner_training_repo: str
+    miner_training_commit: str
+    miner_github_token: str | None = None
+    miner_requested_datasets: str | None = None
 
 
 @dataclass

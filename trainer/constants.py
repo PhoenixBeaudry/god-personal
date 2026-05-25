@@ -35,7 +35,7 @@ MINER_DATASETS_CACHE_DIR = "/cache/miner_datasets"
 MINER_DATASETS_DIR_ENV = "MINER_DATASETS_DIR"
 MINER_DATASETS_ENV = "MINER_DATASETS"
 WANDB_LOGS_DIR = "/app/checkpoints/wandb_logs"
-IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH = "/workspace/core/config"
+IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH = "/workspace/core/training_templates"
 IMAGE_CONTAINER_CONFIG_SAVE_PATH = "/dataset/configs"
 IMAGE_CONTAINER_IMAGES_PATH = "/dataset/images"
 
