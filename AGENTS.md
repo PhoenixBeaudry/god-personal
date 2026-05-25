@@ -1,6 +1,6 @@
 # Agent Guide
 
-This file is for coding agents working inside this repository. Use it with the root `README.md` and the canonical user/operator docs in `docs/guide.md`.
+This file is for coding agents working inside this repository. Use it with the root `README.md`, the developer/operator docs in `docs/developer.md`, and the miner docs in `docs/miner.md`.
 
 ## Current Shape
 
@@ -11,9 +11,9 @@ G.O.D is the validator, trainer, tournament, and auditing system for Gradients o
 - `trainer/` contains the trainer API, GPU/job state, model prep, Docker runtime helpers, and sidecar container entrypoints.
 - `ops/` contains Dockerfiles, compose stacks, observability config, operator scripts, manual probes, and one-off tools.
 - `tests/` mirrors the source tree.
-- `docs/guide.md` is the canonical human-facing guide. Subtree `README.md` files are local maps, not replacement docs.
+- `docs/developer.md` and `docs/miner.md` are the canonical human-facing guides. `docs/guide.md` is a short index. Subtree `README.md` files are local maps, not replacement docs.
 
-The repo supports three tournament families: text, image, and environment. The old in-repo miner runtime has been removed. Miners participate through the external `GET /training_repo/{task_type}` contract documented in `docs/guide.md`.
+The repo supports three tournament families: text, image, and environment. The old in-repo miner runtime has been removed. Miners participate through the external `GET /training_repo/{task_type}` contract documented in `docs/miner.md`.
 
 ## Compatibility Boundary
 
@@ -32,7 +32,7 @@ Internal package layout, filenames, Docker paths, Taskfile commands, and helper 
 - Keep validator-only code out of `core/`; `core/` must stay dependency-light and import neither `validator` nor `trainer`.
 - Keep infrastructure adapters in `validator/infrastructure/`; keep task preparation in `validator/tasks/`; keep tournament bracket/result/orchestration code in `validator/tournament/`.
 - Do not recreate a local `miner/` package or miner runtime.
-- Keep docs centralized: update `docs/guide.md` for user/operator/miner behavior, and update local `README.md` files only when folder maps change.
+- Keep docs centralized: update `docs/developer.md` for developer/operator behavior, update `docs/miner.md` for miner behavior, and update local `README.md` files only when folder maps change.
 - When moving files, update imports directly to the new module. Remove dead shims once repo searches prove they have no callers.
 - Avoid unrelated refactors. This repo is large; move one responsibility boundary at a time and validate it.
 
@@ -68,7 +68,8 @@ find core validator trainer ops tests -type d -name __pycache__ -prune -exec rm 
 Before calling a cleanup pass finished, verify:
 
 - Root `README.md` still gives the right repo map and start-here path.
-- `docs/guide.md` still documents validator setup, trainer setup, tournaments, scoring, local evaluation, and miner participation.
+- `docs/developer.md` still documents validator setup, trainer setup, tournaments, scoring, and local evaluation.
+- `docs/miner.md` still documents miner participation, training repository requirements, task-specific inputs, and output expectations.
 - Local READMEs under `core/`, `validator/`, `trainer/`, `ops/`, and `tests/` match the folders on disk.
-- Searches for deleted paths such as `miner/`, `validator/core`, `validator/cycle`, `validator/utils`, `core/config`, `core/dataset`, `core/utils`, `trainer/utils`, `scripts/`, and `dockerfiles/` do not appear in active docs or imports unless they are historical notes.
+- Searches for deleted paths such as `miner/`, `validator/core`, `validator/cycle`, `validator/utils`, `core/config`, `core/dataset`, `core/utils`, `trainer/utils`, and `scripts/` do not appear in active docs or imports unless they are historical notes. `dockerfiles/` may appear only as the external submitted-training-repository contract path.
 - `pyproject.toml` source distribution metadata includes root handoff files such as `AGENTS.md`, `LICENSE.md`, `NOTICE`, and `README.md`.
