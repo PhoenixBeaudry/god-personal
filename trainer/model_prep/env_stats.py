@@ -138,6 +138,13 @@ def _sample_task_id(seed: int, task_id_min: int, task_id_max: int) -> int:
     return random.Random(seed).randint(task_id_min, task_id_max)
 
 
+def _format_episode_error(error: object) -> str:
+    if error is None:
+        return ""
+    message = str(error).strip()
+    return message or type(error).__name__
+
+
 async def _play_episodes(
     session: aiohttp.ClientSession,
     env_name: EnvironmentName,
@@ -176,6 +183,7 @@ async def _play_episodes(
             payload.update(eval_payload_extra)
 
         failed = False
+        error_message = ""
         try:
             timeout = aiohttp.ClientTimeout(total=ENV_EVAL_TASK_TIMEOUT)
             async with session.post(
@@ -185,17 +193,29 @@ async def _play_episodes(
                     data = await resp.json()
                     result = data.get("result", data)
                     score = float(result.get("score", 0.0))
+                    error_message = _format_episode_error(result.get("error"))
+                    if error_message:
+                        failed = True
                 else:
+                    raw_error = await resp.text()
+                    error_message = f"HTTP {resp.status}"
+                    if raw_error:
+                        error_message = f"{error_message}: {raw_error[:500]}"
                     score = 0.0
                     failed = True
         except Exception as e:
-            print(f"  {env_name.value} episode {i+1}: error {e}", flush=True)
+            error_message = _format_episode_error(e)
             score = 0.0
             failed = True
 
         scores.append(score)
 
         if failed:
+            print(
+                f"  {env_name.value} episode {i+1}: error task_id={task_id} seed={seed}: "
+                f"{error_message or 'unknown error'}",
+                flush=True,
+            )
             consecutive_failures += 1
             if consecutive_failures >= CONSECUTIVE_FAILURE_LIMIT:
                 print(
